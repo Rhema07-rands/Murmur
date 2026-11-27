@@ -74,3 +74,24 @@ export interface TranscriptionResponse {
   language: string;
   durationSeconds: number;
 }
+
+export interface SaveDocumentRequest {
+  title: string;
+  folderName: string;
+  content: string;
+  fileType?: string;
+}
+
+export interface SavedDocumentSummary {
+  id: string;
+  folderName: string;
+  title: string;
+  fileType: string;
+  characterCount: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface SavedDocumentDetail extends SavedDocumentSummary {
+  content: string;
+}

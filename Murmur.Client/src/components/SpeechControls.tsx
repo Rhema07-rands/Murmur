@@ -1,5 +1,13 @@
 import type { SpeechEngine, SpeechJobStatus } from '../types/murmur';
-import { Forward10Icon, PauseIcon, PlayIcon, Rewind10Icon, StopIcon } from './Icons';
+import {
+  Forward10Icon,
+  MiniPlayerIcon,
+  PauseIcon,
+  PlayIcon,
+  RefreshIcon,
+  Rewind10Icon,
+  StopIcon,
+} from './Icons';
 
 interface SpeechControlsProps {
   engine: SpeechEngine;
@@ -10,6 +18,7 @@ interface SpeechControlsProps {
   isPlayingAi: boolean;
   isAiPaused: boolean;
   hasAiAudio: boolean;
+  voiceChangedSinceGeneration?: boolean;
   aiCurrentTime: number;
   aiDuration: number;
   speed: number;
@@ -27,6 +36,7 @@ interface SpeechControlsProps {
   onSkipAi: (seconds: number) => void;
   onSeekAi: (time: number) => void;
   onCancelGeneration?: () => void;
+  onOpenMiniPlayer?: () => void;
 }
 
 function formatTime(seconds: number): string {
@@ -45,6 +55,7 @@ export function SpeechControls({
   isPlayingAi,
   isAiPaused,
   hasAiAudio,
+  voiceChangedSinceGeneration = false,
   aiCurrentTime,
   aiDuration,
   speed,
@@ -62,6 +73,7 @@ export function SpeechControls({
   onSkipAi,
   onSeekAi,
   onCancelGeneration,
+  onOpenMiniPlayer,
 }: SpeechControlsProps) {
   const effectiveElapsed = aiCurrentTime / speed;
   const effectiveTotal = aiDuration / speed;
@@ -205,6 +217,30 @@ export function SpeechControls({
               <button type="button" className="btn btn-danger" onClick={onStopAi}>
                 <StopIcon />
                 <span>Stop</span>
+              </button>
+            )}
+
+            {hasAiAudio && !isGenerating && (
+              <button
+                type="button"
+                className={`btn ${voiceChangedSinceGeneration ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={onPlayAi}
+                title="Generate new audio with the currently selected voice and expressiveness"
+              >
+                <RefreshIcon />
+                <span>{voiceChangedSinceGeneration ? 'Regenerate New Voice' : 'Regenerate'}</span>
+              </button>
+            )}
+
+            {hasAiAudio && onOpenMiniPlayer && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={onOpenMiniPlayer}
+                title="Pop out floating mini-player with -10s, +10s, speed & progress bar"
+              >
+                <MiniPlayerIcon />
+                <span>Mini Player</span>
               </button>
             )}
           </div>

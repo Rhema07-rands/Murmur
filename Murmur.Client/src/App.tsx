@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioPlayer } from './components/AudioPlayer';
 import { DocumentUploader } from './components/DocumentUploader';
 import { Header } from './components/Header';
+import { SavedLibrary } from './components/SavedLibrary';
 import { SpeechControls } from './components/SpeechControls';
 import { TextEditor } from './components/TextEditor';
 import { VoiceSelector } from './components/VoiceSelector';
@@ -49,10 +50,34 @@ function buildTimedSentences(rawText: string): TimedSentence[] {
   });
 }
 
+function getSavedString(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function getSavedNumber(key: string, fallback: number): number {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw !== null) {
+      const parsed = parseFloat(raw);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return fallback;
+}
+
 export function App() {
   const [text, setText] = useState('');
+  const [docTitle, setDocTitle] = useState('');
   const [cursorPos, setCursorPos] = useState(0);
-  const [engine, setEngine] = useState<SpeechEngine>('ai');
+  const [engine, setEngine] = useState<SpeechEngine>(() =>
+    getSavedString('murmur_engine', 'ai') === 'browser' ? 'browser' : 'ai'
+  );
   const [workerHealth, setWorkerHealth] = useState<WorkerHealthResponse>({
     available: true,
     engine: 'Cloud Neural AI',
@@ -62,15 +87,23 @@ export function App() {
   });
 
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedBrowserVoiceURI, setSelectedBrowserVoiceURI] = useState('');
-  const [selectedLanguage, setSelectedLanguage] = useState('all');
+  const [selectedBrowserVoiceURI, setSelectedBrowserVoiceURI] = useState(() =>
+    getSavedString('murmur_browser_voice_uri', '')
+  );
+  const [selectedLanguage, setSelectedLanguage] = useState(() =>
+    getSavedString('murmur_language', 'all')
+  );
 
   const [aiVoices, setAiVoices] = useState<VoiceOption[]>(DEFAULT_AI_VOICES);
-  const [selectedAiVoiceId, setSelectedAiVoiceId] = useState('en-US-JennyNeural');
+  const [selectedAiVoiceId, setSelectedAiVoiceId] = useState(() =>
+    getSavedString('murmur_ai_voice_id', 'en-US-JennyNeural')
+  );
 
-  const [speed, setSpeed] = useState(1.0);
-  const [pitch, setPitch] = useState(1.0);
-  const [exaggeration, setExaggeration] = useState(0.5);
+  const [speed, setSpeed] = useState(() => getSavedNumber('murmur_speed', 1.0));
+  const [pitch, setPitch] = useState(() => getSavedNumber('murmur_pitch', 1.0));
+  const [exaggeration, setExaggeration] = useState(() =>
+    getSavedNumber('murmur_exaggeration', 0.5)
+  );
 
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -84,13 +117,35 @@ export function App() {
   const [aiDuration, setAiDuration] = useState(0);
   const [spokenAiText, setSpokenAiText] = useState('');
   const [generatedAudio, setGeneratedAudio] = useState<SpeechGenerateResponse | null>(null);
+  const [generatedVoiceId, setGeneratedVoiceId] = useState<string | null>(null);
+  const [generatedExaggeration, setGeneratedExaggeration] = useState<number | null>(null);
   const [generationProgress, setGenerationProgress] = useState<SpeechJobStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const globalAudioRef = useRef<HTMLAudioElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const pipWindowRef = useRef<Window | null>(null);
   const speedRef = useRef(speed);
   speedRef.current = speed;
+
+  const voiceChangedSinceGeneration =
+    generatedAudio !== null &&
+    (generatedVoiceId !== selectedAiVoiceId || generatedExaggeration !== exaggeration);
+
+  // Persist model & playback preferences across page refreshes
+  useEffect(() => {
+    try {
+      localStorage.setItem('murmur_engine', engine);
+      localStorage.setItem('murmur_ai_voice_id', selectedAiVoiceId);
+      localStorage.setItem('murmur_browser_voice_uri', selectedBrowserVoiceURI);
+      localStorage.setItem('murmur_language', selectedLanguage);
+      localStorage.setItem('murmur_speed', String(speed));
+      localStorage.setItem('murmur_exaggeration', String(exaggeration));
+      localStorage.setItem('murmur_pitch', String(pitch));
+    } catch {
+      // ignore storage errors
+    }
+  }, [engine, selectedAiVoiceId, selectedBrowserVoiceURI, selectedLanguage, speed, exaggeration, pitch]);
 
   const timedSentences = useMemo(() => buildTimedSentences(spokenAiText), [spokenAiText]);
 
@@ -249,6 +304,8 @@ export function App() {
 
       setSpokenAiText(textToSpeak);
       setGeneratedAudio(result);
+      setGeneratedVoiceId(selectedAiVoiceId);
+      setGeneratedExaggeration(exaggeration);
 
       const audio = new Audio(result.audioUrl);
       globalAudioRef.current = audio;
@@ -340,18 +397,183 @@ export function App() {
     setIsAiPaused(false);
   };
 
-  const handleSeekAi = (nextTime: number) => {
+  const handleSeekAi = useCallback((nextTime: number) => {
     if (globalAudioRef.current) {
       const duration = globalAudioRef.current.duration || aiDuration || 0;
       const clamped = Math.max(0, Math.min(duration, nextTime));
       globalAudioRef.current.currentTime = clamped;
       setAiCurrentTime(clamped);
     }
-  };
+  }, [aiDuration]);
 
-  const handleSkipAi = (seconds: number) => {
+  const handleSkipAi = useCallback((seconds: number) => {
     if (globalAudioRef.current) {
       handleSeekAi(globalAudioRef.current.currentTime + seconds);
+    }
+  }, [handleSeekAi]);
+
+  // OS Media Notification / Lock Screen Controls + Progress Bar (Media Session API)
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !generatedAudio) return;
+
+    const voiceName =
+      aiVoices.find((v) => v.id === (generatedVoiceId ?? selectedAiVoiceId))?.name ?? 'Murmur Neural Voice';
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: docTitle || 'Murmur Audio Reading',
+      artist: `${voiceName} (${speed}x)`,
+      album: currentSubtitle ? currentSubtitle.slice(0, 80) : 'Murmur AI Reader',
+    });
+
+    navigator.mediaSession.playbackState = isPlayingAi
+      ? 'playing'
+      : isAiPaused
+        ? 'paused'
+        : 'none';
+
+    navigator.mediaSession.setActionHandler('play', () => void handleResumeAi());
+    navigator.mediaSession.setActionHandler('pause', () => handlePauseAi());
+    navigator.mediaSession.setActionHandler('stop', () => handleStopAi());
+    navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+      handleSkipAi(-(details.seekOffset ?? 10));
+    });
+    navigator.mediaSession.setActionHandler('seekforward', (details) => {
+      handleSkipAi(details.seekOffset ?? 10);
+    });
+    navigator.mediaSession.setActionHandler('previoustrack', () => handleSkipAi(-10));
+    navigator.mediaSession.setActionHandler('nexttrack', () => handleSkipAi(10));
+    navigator.mediaSession.setActionHandler('seekto', (details) => {
+      if (typeof details.seekTime === 'number') {
+        handleSeekAi(details.seekTime);
+      }
+    });
+
+    if ('setPositionState' in navigator.mediaSession && aiDuration > 0 && Number.isFinite(aiDuration)) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: aiDuration,
+          playbackRate: speed,
+          position: Math.min(aiCurrentTime, aiDuration),
+        });
+      } catch {
+        // ignore transient metadata states
+      }
+    }
+  }, [
+    generatedAudio,
+    generatedVoiceId,
+    selectedAiVoiceId,
+    aiVoices,
+    docTitle,
+    currentSubtitle,
+    isPlayingAi,
+    isAiPaused,
+    aiCurrentTime,
+    aiDuration,
+    speed,
+    handleSkipAi,
+    handleSeekAi,
+  ]);
+
+  // Keep Document Picture-in-Picture mini player synced when open
+  const updatePipContent = useCallback(() => {
+    const pipWin = pipWindowRef.current;
+    if (!pipWin || pipWin.closed) return;
+
+    const progressEl = pipWin.document.getElementById('pip-progress') as HTMLInputElement | null;
+    const timerEl = pipWin.document.getElementById('pip-timer');
+    const subEl = pipWin.document.getElementById('pip-sub');
+    const playBtn = pipWin.document.getElementById('pip-play');
+    const speedEl = pipWin.document.getElementById('pip-speed');
+
+    const effElapsed = aiCurrentTime / speed;
+    const effTotal = aiDuration / speed;
+    const fmt = (s: number) => {
+      if (!Number.isFinite(s) || s < 0) return '0:00';
+      const m = Math.floor(s / 60);
+      const sec = Math.floor(s % 60);
+      return `${m}:${sec.toString().padStart(2, '0')}`;
+    };
+
+    if (progressEl) {
+      progressEl.max = String(aiDuration || 1);
+      progressEl.value = String(Math.min(aiCurrentTime, aiDuration || 1));
+    }
+    if (timerEl) timerEl.textContent = `${fmt(effElapsed)} / ${fmt(effTotal)}`;
+    if (subEl) subEl.textContent = currentSubtitle || 'Ready to play';
+    if (playBtn) playBtn.textContent = isPlayingAi ? 'Pause' : 'Play';
+    if (speedEl) speedEl.textContent = `${speed}x`;
+  }, [aiCurrentTime, aiDuration, speed, currentSubtitle, isPlayingAi]);
+
+  useEffect(() => {
+    updatePipContent();
+  }, [updatePipContent]);
+
+  const handleOpenMiniPlayer = async () => {
+    const docPip = (window as unknown as {
+      documentPictureInPicture?: { requestWindow: (opts: { width: number; height: number }) => Promise<Window> };
+    }).documentPictureInPicture;
+
+    if (!docPip) {
+      setError('Floating Mini Player requires Chrome or Edge desktop. On mobile, use your OS notification shade controls.');
+      return;
+    }
+
+    try {
+      const pipWin = await docPip.requestWindow({ width: 380, height: 220 });
+      pipWindowRef.current = pipWin;
+      pipWin.document.body.style.cssText =
+        'margin:0;padding:14px;background:#0f172a;color:#f8fafc;font-family:system-ui,sans-serif;display:flex;flex-direction:column;gap:10px;';
+
+      pipWin.document.body.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <strong style="font-size:14px;color:#fda4af;">Murmur Mini Player</strong>
+          <span id="pip-timer" style="font-size:12px;color:#94a3b8;">0:00 / 0:00</span>
+        </div>
+        <input id="pip-progress" type="range" min="0" max="1" step="0.1" style="width:100%;accent-color:#f43f5e;cursor:pointer;" />
+        <div id="pip-sub" style="font-size:12px;color:#cbd5e1;background:#1e293b;padding:8px 10px;border-radius:8px;border-left:3px solid #6366f1;min-height:34px;overflow:hidden;"></div>
+        <div style="display:flex;gap:6px;align-items:center;justify-content:space-between;">
+          <div style="display:flex;gap:6px;">
+            <button id="pip-back" style="padding:6px 10px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#f8fafc;cursor:pointer;">-10s</button>
+            <button id="pip-play" style="padding:6px 12px;border-radius:6px;border:none;background:#6366f1;color:#fff;font-weight:600;cursor:pointer;">Play</button>
+            <button id="pip-fwd" style="padding:6px 10px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#f8fafc;cursor:pointer;">+10s</button>
+          </div>
+          <div style="display:flex;gap:4px;align-items:center;">
+            <button id="pip-speed-down" style="padding:5px 8px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#f8fafc;cursor:pointer;">-</button>
+            <span id="pip-speed" style="font-size:12px;min-width:34px;text-align:center;font-weight:600;">${speedRef.current}x</span>
+            <button id="pip-speed-up" style="padding:5px 8px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#f8fafc;cursor:pointer;">+</button>
+          </div>
+        </div>
+      `;
+
+      const SPEED_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
+      pipWin.document.getElementById('pip-back')?.addEventListener('click', () => handleSkipAi(-10));
+      pipWin.document.getElementById('pip-fwd')?.addEventListener('click', () => handleSkipAi(10));
+      pipWin.document.getElementById('pip-play')?.addEventListener('click', () => {
+        if (globalAudioRef.current?.paused) {
+          void handleResumeAi();
+        } else {
+          handlePauseAi();
+        }
+      });
+      pipWin.document.getElementById('pip-progress')?.addEventListener('input', (ev) => {
+        const val = parseFloat((ev.target as HTMLInputElement).value);
+        handleSeekAi(val);
+      });
+      pipWin.document.getElementById('pip-speed-up')?.addEventListener('click', () => {
+        const idx = SPEED_STEPS.findIndex((s) => s >= speedRef.current);
+        const next = SPEED_STEPS[Math.min(SPEED_STEPS.length - 1, (idx === -1 ? 2 : idx) + 1)];
+        handleSpeedChange(next);
+      });
+      pipWin.document.getElementById('pip-speed-down')?.addEventListener('click', () => {
+        const idx = SPEED_STEPS.findIndex((s) => s >= speedRef.current);
+        const next = SPEED_STEPS[Math.max(0, (idx === -1 ? 2 : idx) - 1)];
+        handleSpeedChange(next);
+      });
+
+      updatePipContent();
+    } catch {
+      setError('Could not open floating Mini Player.');
     }
   };
 
@@ -371,6 +593,17 @@ export function App() {
           <DocumentUploader
             onLoadText={(loaded) => {
               setText(loaded);
+              setCursorPos(0);
+              setError(null);
+            }}
+          />
+
+          <SavedLibrary
+            currentText={text}
+            suggestedTitle={docTitle}
+            onLoadDocument={(loadedContent, loadedTitle) => {
+              setText(loadedContent);
+              setDocTitle(loadedTitle);
               setCursorPos(0);
               setError(null);
             }}
@@ -415,6 +648,7 @@ export function App() {
             isPlayingAi={isPlayingAi}
             isAiPaused={isAiPaused}
             hasAiAudio={generatedAudio !== null}
+            voiceChangedSinceGeneration={voiceChangedSinceGeneration}
             aiCurrentTime={aiCurrentTime}
             aiDuration={aiDuration}
             speed={speed}
@@ -438,6 +672,7 @@ export function App() {
             onSkipAi={handleSkipAi}
             onSeekAi={handleSeekAi}
             onCancelGeneration={handleCancelGeneration}
+            onOpenMiniPlayer={() => void handleOpenMiniPlayer()}
           />
 
           {error && <p className="error-banner">{error}</p>}

@@ -1,5 +1,8 @@
 import type {
   DocumentUploadResponse,
+  SaveDocumentRequest,
+  SavedDocumentDetail,
+  SavedDocumentSummary,
   SpeechGenerateRequest,
   SpeechGenerateResponse,
   SpeechJobStatus,
@@ -213,5 +216,51 @@ export const apiService = {
       throw new Error(await parseError(response));
     }
     return response.json() as Promise<TranscriptionResponse>;
+  },
+
+  async listSavedDocuments(folder?: string): Promise<SavedDocumentSummary[]> {
+    const query = folder && folder !== 'All' ? `?folder=${encodeURIComponent(folder)}` : '';
+    const response = await fetch(`${API_BASE}/api/library/documents${query}`);
+    if (!response.ok) {
+      throw new Error(await parseError(response));
+    }
+    return response.json() as Promise<SavedDocumentSummary[]>;
+  },
+
+  async listFolders(): Promise<string[]> {
+    const response = await fetch(`${API_BASE}/api/library/folders`);
+    if (!response.ok) {
+      throw new Error(await parseError(response));
+    }
+    return response.json() as Promise<string[]>;
+  },
+
+  async getSavedDocument(id: string): Promise<SavedDocumentDetail> {
+    const response = await fetch(`${API_BASE}/api/library/documents/${encodeURIComponent(id)}`);
+    if (!response.ok) {
+      throw new Error(await parseError(response));
+    }
+    return response.json() as Promise<SavedDocumentDetail>;
+  },
+
+  async saveDocumentToLibrary(request: SaveDocumentRequest): Promise<SavedDocumentSummary> {
+    const response = await fetch(`${API_BASE}/api/library/documents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      throw new Error(await parseError(response));
+    }
+    return response.json() as Promise<SavedDocumentSummary>;
+  },
+
+  async deleteSavedDocument(id: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/api/library/documents/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok && response.status !== 204) {
+      throw new Error(await parseError(response));
+    }
   },
 };

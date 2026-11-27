@@ -29,3 +29,31 @@ public sealed record DocumentUploadResponse(
     int SectionCount,
     IReadOnlyList<DocumentSection> Sections
 );
+
+public sealed record SaveDocumentRequest(
+    string Title,
+    string FolderName,
+    string Content,
+    string? FileType = "text"
+);
+
+public sealed record SavedDocumentSummary(
+    string Id,
+    string FolderName,
+    string Title,
+    string FileType,
+    int CharacterCount,
+    DateTime CreatedAtUtc,
+    DateTime UpdatedAtUtc
+);
+
+public sealed record SavedDocumentDetail(
+    string Id,
+    string FolderName,
+    string Title,
+    string FileType,
+    string Content,
+    int CharacterCount,
+    DateTime CreatedAtUtc,
+    DateTime UpdatedAtUtc
+);

@@ -4,6 +4,14 @@ import { ChevronDownIcon } from './Icons';
 
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
 
+const EXPRESSIVENESS_OPTIONS = [
+  { value: 0.25, label: 'Subtle (0.25)' },
+  { value: 0.5, label: 'Natural (0.50)' },
+  { value: 0.75, label: 'Expressive (0.75)' },
+  { value: 1.0, label: 'Dramatic (1.00)' },
+  { value: 1.2, label: 'Intense (1.20)' },
+];
+
 interface VoiceSelectorProps {
   engine: SpeechEngine;
   onEngineChange: (engine: SpeechEngine) => void;
@@ -44,6 +52,11 @@ export function VoiceSelector({
   aiAvailable,
 }: VoiceSelectorProps) {
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
+  const [expressivenessMenuOpen, setExpressivenessMenuOpen] = useState(false);
+
+  const selectedExpressivenessLabel =
+    EXPRESSIVENESS_OPTIONS.find((o) => Math.abs(o.value - exaggeration) < 0.01)?.label ??
+    `Custom (${exaggeration.toFixed(2)})`;
 
   const browserLanguages = Array.from(
     new Set(browserVoices.map((v) => v.lang))
@@ -187,17 +200,41 @@ export function VoiceSelector({
             />
           </label>
         ) : (
-          <label className="field">
-            <span>Expressiveness: {exaggeration.toFixed(2)}</span>
-            <input
-              type="range"
-              min="0.1"
-              max="1.2"
-              step="0.05"
-              value={exaggeration}
-              onChange={(e) => onExaggerationChange(parseFloat(e.target.value))}
-            />
-          </label>
+          <div className="field speed-picker">
+            <span>Expressiveness</span>
+            <button
+              type="button"
+              className="btn btn-secondary speed-trigger"
+              onClick={() => {
+                setExpressivenessMenuOpen((open) => !open);
+                setSpeedMenuOpen(false);
+              }}
+              aria-expanded={expressivenessMenuOpen}
+            >
+              <span>{selectedExpressivenessLabel}</span>
+              <ChevronDownIcon rotated={expressivenessMenuOpen} />
+            </button>
+
+            {expressivenessMenuOpen && (
+              <div className="speed-menu" role="menu" aria-label="Select expressiveness level">
+                {EXPRESSIVENESS_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={Math.abs(exaggeration - opt.value) < 0.01}
+                    className={`speed-option ${Math.abs(exaggeration - opt.value) < 0.01 ? 'active' : ''}`}
+                    onClick={() => {
+                      onExaggerationChange(opt.value);
+                      setExpressivenessMenuOpen(false);
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </section>
