@@ -99,6 +99,9 @@ export function AudioPlayer({ generated, audioRefShared }: AudioPlayerProps) {
         <button type="button" className="btn btn-secondary" onClick={() => void togglePlay()}>
           {playing ? '⏸ Pause' : '▶ Play'}
         </button>
+        <button type="button" className="btn btn-secondary" onClick={() => skipSeconds(-10)} title="Go back 10 seconds">
+          ⏪ -10s
+        </button>
         <button type="button" className="btn btn-secondary" onClick={() => skipSeconds(10)} title="Skip forward 10 seconds">
           ⏩ +10s
         </button>

@@ -121,14 +121,24 @@ export function SpeechControls({
             )}
 
             {(isPlayingAi || isAiPaused || hasAiAudio) && (
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => onSkipAi(10)}
-                title="Skip ahead 10 seconds"
-              >
-                ⏩ +10s
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => onSkipAi(-10)}
+                  title="Go back 10 seconds"
+                >
+                  ⏪ -10s
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => onSkipAi(10)}
+                  title="Skip ahead 10 seconds"
+                >
+                  ⏩ +10s
+                </button>
+              </>
             )}
 
             {(isPlayingAi || isAiPaused) && (
