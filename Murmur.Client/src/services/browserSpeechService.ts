@@ -4,7 +4,7 @@ export interface BrowserSpeechCallbacks {
   onPause?: () => void;
   onResume?: () => void;
   onError?: (message: string) => void;
-  onProgress?: (currentChunk: number, totalChunks: number) => void;
+  onProgress?: (currentChunk: number, totalChunks: number, currentText: string) => void;
 }
 
 export interface BrowserSpeakOptions {
@@ -68,12 +68,12 @@ class BrowserSpeechService {
         utterance.voice = selectedVoice;
         utterance.lang = selectedVoice.lang;
       }
-      utterance.rate = Math.max(0.5, Math.min(2.0, options.rate));
+      utterance.rate = Math.max(0.5, Math.min(3.0, options.rate));
       utterance.pitch = Math.max(0.5, Math.min(2.0, options.pitch));
 
       utterance.onstart = () => {
         if (index === 0) callbacks.onStart?.();
-        callbacks.onProgress?.(index + 1, chunks.length);
+        callbacks.onProgress?.(index + 1, chunks.length, chunks[index]);
       };
 
       utterance.onpause = () => callbacks.onPause?.();

@@ -143,13 +143,10 @@ public sealed class ChatterboxSpeechService : ISpeechService
             }
         }
 
-        // 2. Generate using authenticated Cloud Neural TTS (with rolling Sec-MS-GEC v2 signature)
+        // 2. Generate using authenticated Cloud Neural TTS (speed is applied cleanly on client playbackRate 0.5x-3x)
         try
         {
-            var speedPercent = (int)Math.Round((request.Speed - 1.0) * 100);
-            var rateStr = speedPercent >= 0 ? $"+{speedPercent}%" : $"{speedPercent}%";
-
-            await EdgeTtsClient.SynthesizeToFileAsync(request.Text, voiceId, rateStr, outputPath, cancellationToken);
+            await EdgeTtsClient.SynthesizeToFileAsync(request.Text, voiceId, "+0%", outputPath, cancellationToken);
 
             return new SpeechGenerateResponse(
                 AudioId: audioId,

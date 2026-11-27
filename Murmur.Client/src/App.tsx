@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioPlayer } from './components/AudioPlayer';
 import { DocumentUploader } from './components/DocumentUploader';
 import { Header } from './components/Header';
@@ -28,6 +28,26 @@ const DEFAULT_AI_VOICES: VoiceOption[] = [
   { id: 'ja-JP-NanamiNeural', name: 'Nanami (Japanese Neural)', language: 'ja-JP', accent: 'Japan', engine: 'cloud-neural', description: 'Standard Japanese female neural voice' },
 ];
 
+interface TimedSentence {
+  text: string;
+  startRatio: number;
+  endRatio: number;
+}
+
+function buildTimedSentences(rawText: string): TimedSentence[] {
+  const cleaned = rawText.replace(/\s+/g, ' ').trim();
+  if (!cleaned) return [];
+  const parts = cleaned.split(/(?<=[.!?])\s+/).filter((p) => p.trim().length > 0);
+  const totalChars = parts.reduce((sum, p) => sum + p.length, 0) || 1;
+  let offset = 0;
+  return parts.map((part) => {
+    const startRatio = offset / totalChars;
+    offset += part.length;
+    const endRatio = offset / totalChars;
+    return { text: part, startRatio, endRatio };
+  });
+}
+
 export function App() {
   const [text, setText] = useState('');
   const [cursorPos, setCursorPos] = useState(0);
@@ -54,14 +74,33 @@ export function App() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [browserProgress, setBrowserProgress] = useState<{ current: number; total: number } | null>(null);
+  const [browserSubtitle, setBrowserSubtitle] = useState('');
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPlayingAi, setIsPlayingAi] = useState(false);
   const [isAiPaused, setIsAiPaused] = useState(false);
+  const [aiCurrentTime, setAiCurrentTime] = useState(0);
+  const [aiDuration, setAiDuration] = useState(0);
+  const [spokenAiText, setSpokenAiText] = useState('');
   const [generatedAudio, setGeneratedAudio] = useState<SpeechGenerateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const globalAudioRef = useRef<HTMLAudioElement | null>(null);
+  const speedRef = useRef(speed);
+  speedRef.current = speed;
+
+  const timedSentences = useMemo(() => buildTimedSentences(spokenAiText), [spokenAiText]);
+
+  const aiSubtitle = useMemo(() => {
+    if (!isPlayingAi && !isAiPaused) return '';
+    if (timedSentences.length === 0) return '';
+    if (aiDuration <= 0) return timedSentences[0].text;
+    const ratio = Math.max(0, Math.min(0.9999, aiCurrentTime / aiDuration));
+    const match = timedSentences.find((s) => ratio >= s.startRatio && ratio <= s.endRatio);
+    return match ? match.text : timedSentences[timedSentences.length - 1].text;
+  }, [isPlayingAi, isAiPaused, timedSentences, aiCurrentTime, aiDuration]);
+
+  const currentSubtitle = engine === 'browser' ? browserSubtitle : aiSubtitle;
 
   const refreshWorker = useCallback(async () => {
     try {
@@ -94,6 +133,20 @@ export function App() {
     return browserSpeechService.subscribeVoicesChanged(loadVoices);
   }, []);
 
+  const applySpeedToAudio = (audio: HTMLAudioElement, rate: number) => {
+    audio.preservesPitch = true;
+    audio.defaultPlaybackRate = rate;
+    audio.playbackRate = rate;
+  };
+
+  const handleSpeedChange = (nextSpeed: number) => {
+    setSpeed(nextSpeed);
+    speedRef.current = nextSpeed;
+    if (globalAudioRef.current) {
+      applySpeedToAudio(globalAudioRef.current, nextSpeed);
+    }
+  };
+
   const handlePlayBrowser = () => {
     setError(null);
     const textToSpeak = cursorPos > 0 ? text.slice(cursorPos) : text;
@@ -116,16 +169,21 @@ export function App() {
         },
         onPause: () => setIsPaused(true),
         onResume: () => setIsPaused(false),
-        onProgress: (current, total) => setBrowserProgress({ current, total }),
+        onProgress: (current, total, chunkText) => {
+          setBrowserProgress({ current, total });
+          setBrowserSubtitle(chunkText);
+        },
         onEnd: () => {
           setIsSpeaking(false);
           setIsPaused(false);
           setBrowserProgress(null);
+          setBrowserSubtitle('');
         },
         onError: (msg) => {
           setIsSpeaking(false);
           setIsPaused(false);
           setBrowserProgress(null);
+          setBrowserSubtitle('');
           setError(msg);
         },
       }
@@ -152,24 +210,40 @@ export function App() {
 
     setIsGenerating(true);
     setIsAiPaused(false);
+    setAiCurrentTime(0);
+    setAiDuration(0);
 
     try {
       const result = await apiService.generateAiSpeech({
         text: textToSpeak,
         voiceId: selectedAiVoiceId,
         language: 'en',
-        speed,
+        speed: 1.0,
         exaggeration,
         cfgWeight: 0.5,
       });
 
+      setSpokenAiText(textToSpeak);
       setGeneratedAudio(result);
 
       const audio = new Audio(result.audioUrl);
       globalAudioRef.current = audio;
-      audio.playbackRate = speed;
+      applySpeedToAudio(audio, speedRef.current);
 
+      audio.onloadedmetadata = () => {
+        if (Number.isFinite(audio.duration)) {
+          setAiDuration(audio.duration);
+        }
+        applySpeedToAudio(audio, speedRef.current);
+      };
+      audio.ontimeupdate = () => {
+        setAiCurrentTime(audio.currentTime);
+        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+          setAiDuration(audio.duration);
+        }
+      };
       audio.onplay = () => {
+        applySpeedToAudio(audio, speedRef.current);
         setIsPlayingAi(true);
         setIsAiPaused(false);
       };
@@ -182,7 +256,6 @@ export function App() {
       audio.onended = () => {
         setIsPlayingAi(false);
         setIsAiPaused(false);
-        globalAudioRef.current = null;
       };
       audio.onerror = () => {
         setIsPlayingAi(false);
@@ -209,6 +282,7 @@ export function App() {
   const handleResumeAi = async () => {
     if (globalAudioRef.current && globalAudioRef.current.paused) {
       try {
+        applySpeedToAudio(globalAudioRef.current, speedRef.current);
         await globalAudioRef.current.play();
         setIsPlayingAi(true);
         setIsAiPaused(false);
@@ -222,17 +296,24 @@ export function App() {
     if (globalAudioRef.current) {
       globalAudioRef.current.pause();
       globalAudioRef.current.currentTime = 0;
-      globalAudioRef.current = null;
     }
+    setAiCurrentTime(0);
     setIsPlayingAi(false);
     setIsAiPaused(false);
   };
 
+  const handleSeekAi = (nextTime: number) => {
+    if (globalAudioRef.current) {
+      const duration = globalAudioRef.current.duration || aiDuration || 0;
+      const clamped = Math.max(0, Math.min(duration, nextTime));
+      globalAudioRef.current.currentTime = clamped;
+      setAiCurrentTime(clamped);
+    }
+  };
+
   const handleSkipAi = (seconds: number) => {
     if (globalAudioRef.current) {
-      const current = globalAudioRef.current.currentTime;
-      const duration = globalAudioRef.current.duration || 0;
-      globalAudioRef.current.currentTime = Math.max(0, Math.min(duration, current + seconds));
+      handleSeekAi(globalAudioRef.current.currentTime + seconds);
     }
   };
 
@@ -244,9 +325,7 @@ export function App() {
         <div className="primary-col">
           <TextEditor
             text={text}
-            onChange={(val) => {
-              setText(val);
-            }}
+            onChange={(val) => setText(val)}
             onCursorChange={(pos) => setCursorPos(pos)}
             aiAvailable={workerHealth?.available ?? true}
           />
@@ -269,6 +348,7 @@ export function App() {
               setIsSpeaking(false);
               setIsPaused(false);
               setBrowserProgress(null);
+              setBrowserSubtitle('');
               setEngine(next);
             }}
             browserVoices={browserVoices}
@@ -280,12 +360,7 @@ export function App() {
             selectedAiVoiceId={selectedAiVoiceId}
             onAiVoiceChange={setSelectedAiVoiceId}
             speed={speed}
-            onSpeedChange={(val) => {
-              setSpeed(val);
-              if (globalAudioRef.current) {
-                globalAudioRef.current.playbackRate = val;
-              }
-            }}
+            onSpeedChange={handleSpeedChange}
             pitch={pitch}
             onPitchChange={setPitch}
             exaggeration={exaggeration}
@@ -300,6 +375,11 @@ export function App() {
             isGenerating={isGenerating}
             isPlayingAi={isPlayingAi}
             isAiPaused={isAiPaused}
+            hasAiAudio={generatedAudio !== null}
+            aiCurrentTime={aiCurrentTime}
+            aiDuration={aiDuration}
+            speed={speed}
+            currentSubtitle={currentSubtitle}
             browserProgress={browserProgress}
             startCursorPos={cursorPos}
             onPlayBrowser={handlePlayBrowser}
@@ -310,17 +390,19 @@ export function App() {
               setIsSpeaking(false);
               setIsPaused(false);
               setBrowserProgress(null);
+              setBrowserSubtitle('');
             }}
             onPlayAi={() => void handlePlayAi()}
             onPauseAi={handlePauseAi}
             onResumeAi={() => void handleResumeAi()}
             onStopAi={handleStopAi}
             onSkipAi={handleSkipAi}
+            onSeekAi={handleSeekAi}
           />
 
           {error && <p className="error-banner">{error}</p>}
 
-          <AudioPlayer generated={generatedAudio} audioRefShared={globalAudioRef} />
+          <AudioPlayer generated={generatedAudio} />
         </div>
       </main>
     </div>
