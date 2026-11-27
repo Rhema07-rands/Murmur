@@ -12,7 +12,7 @@ public sealed class ChatterboxSpeechService : ISpeechService
     private readonly HttpClient _httpClient;
     private readonly ILogger<ChatterboxSpeechService> _logger;
     private readonly string _audioStoragePath;
-    private readonly ConcurrentDictionary<string, SpeechJobState> _jobs = new();
+    private static readonly ConcurrentDictionary<string, SpeechJobState> _jobs = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
