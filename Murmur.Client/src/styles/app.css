@@ -48,14 +48,14 @@ body {
 }
 
 .brand-mark {
-  width: 42px;
-  height: 42px;
-  border-radius: 10px;
-  background: var(--primary);
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(255, 75, 114, 0.12);
+  border: 1px solid rgba(255, 75, 114, 0.25);
   display: grid;
   place-items: center;
-  font-weight: 700;
-  font-size: 1.25rem;
+  box-shadow: 0 2px 8px rgba(255, 75, 114, 0.15);
 }
 
 .brand h1 {
