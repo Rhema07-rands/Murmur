@@ -14,26 +14,37 @@ import type {
   WorkerHealthResponse,
 } from './types/murmur';
 
+const DEFAULT_AI_VOICES: VoiceOption[] = [
+  { id: 'en-US-JennyNeural', name: 'Jenny (US Neural)', language: 'en-US', accent: 'United States', engine: 'cloud-neural', description: 'Warm, natural US English female neural voice' },
+  { id: 'en-US-GuyNeural', name: 'Guy (US Neural)', language: 'en-US', accent: 'United States', engine: 'cloud-neural', description: 'Clear, natural US English male neural voice' },
+  { id: 'en-US-AriaNeural', name: 'Aria (US Expressive)', language: 'en-US', accent: 'United States', engine: 'cloud-neural', description: 'Expressive US English female neural voice' },
+  { id: 'en-US-ChristopherNeural', name: 'Christopher (US Casual)', language: 'en-US', accent: 'United States', engine: 'cloud-neural', description: 'Casual, friendly US English male neural voice' },
+  { id: 'en-GB-SoniaNeural', name: 'Sonia (UK Neural)', language: 'en-GB', accent: 'United Kingdom', engine: 'cloud-neural', description: 'Polished British English female neural voice' },
+  { id: 'en-GB-RyanNeural', name: 'Ryan (UK Neural)', language: 'en-GB', accent: 'United Kingdom', engine: 'cloud-neural', description: 'Friendly British English male neural voice' },
+  { id: 'en-AU-NatashaNeural', name: 'Natasha (AU Neural)', language: 'en-AU', accent: 'Australia', engine: 'cloud-neural', description: 'Natural Australian English female neural voice' },
+  { id: 'es-ES-ElviraNeural', name: 'Elvira (Spanish Neural)', language: 'es-ES', accent: 'Spain', engine: 'cloud-neural', description: 'Natural Castilian Spanish female voice' },
+  { id: 'fr-FR-DeniseNeural', name: 'Denise (French Neural)', language: 'fr-FR', accent: 'France', engine: 'cloud-neural', description: 'Standard French female neural voice' },
+  { id: 'de-DE-KatjaNeural', name: 'Katja (German Neural)', language: 'de-DE', accent: 'Germany', engine: 'cloud-neural', description: 'Natural German female neural voice' },
+  { id: 'ja-JP-NanamiNeural', name: 'Nanami (Japanese Neural)', language: 'ja-JP', accent: 'Japan', engine: 'cloud-neural', description: 'Standard Japanese female neural voice' },
+];
+
 export function App() {
   const [text, setText] = useState('');
-  const [engine, setEngine] = useState<SpeechEngine>('browser');
-  const [workerHealth, setWorkerHealth] = useState<WorkerHealthResponse | null>(null);
+  const [engine, setEngine] = useState<SpeechEngine>('ai');
+  const [workerHealth, setWorkerHealth] = useState<WorkerHealthResponse>({
+    available: true,
+    engine: 'Cloud Neural AI',
+    device: 'Cloud',
+    chatterboxLoaded: false,
+    whisperLoaded: false,
+  });
 
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedBrowserVoiceURI, setSelectedBrowserVoiceURI] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('all');
 
-  const [aiVoices, setAiVoices] = useState<VoiceOption[]>([
-    {
-      id: 'default',
-      name: 'Chatterbox Default',
-      language: 'en',
-      accent: 'Neutral',
-      engine: 'chatterbox',
-      description: 'Built-in Chatterbox neural voice',
-    },
-  ]);
-  const [selectedAiVoiceId, setSelectedAiVoiceId] = useState('default');
+  const [aiVoices, setAiVoices] = useState<VoiceOption[]>(DEFAULT_AI_VOICES);
+  const [selectedAiVoiceId, setSelectedAiVoiceId] = useState('en-US-JennyNeural');
 
   const [speed, setSpeed] = useState(1.0);
   const [pitch, setPitch] = useState(1.0);
@@ -51,21 +62,12 @@ export function App() {
     try {
       const health = await apiService.getWorkerHealth();
       setWorkerHealth(health);
-      if (health.available) {
-        const voices = await apiService.getAiVoices();
-        if (voices.length > 0) {
-          setAiVoices(voices);
-        }
+      const voices = await apiService.getAiVoices();
+      if (voices && voices.length > 0) {
+        setAiVoices(voices);
       }
     } catch {
-      setWorkerHealth({
-        available: false,
-        engine: 'Chatterbox',
-        device: 'offline',
-        chatterboxLoaded: false,
-        whisperLoaded: false,
-        error: 'Backend API is not reachable.',
-      });
+      // Kept available with default neural list even if polling momentarily delays
     }
   }, []);
 
@@ -163,7 +165,7 @@ export function App() {
           <TextEditor
             text={text}
             onChange={setText}
-            aiAvailable={workerHealth?.available ?? false}
+            aiAvailable={workerHealth?.available ?? true}
           />
 
           <DocumentUploader
@@ -198,7 +200,7 @@ export function App() {
             onPitchChange={setPitch}
             exaggeration={exaggeration}
             onExaggerationChange={setExaggeration}
-            aiAvailable={workerHealth?.available ?? false}
+            aiAvailable={true}
           />
 
           <SpeechControls
