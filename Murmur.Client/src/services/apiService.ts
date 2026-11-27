@@ -7,6 +7,8 @@ import type {
   WorkerHealthResponse,
 } from '../types/murmur';
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
 async function parseError(response: Response): Promise<string> {
   try {
     const data = (await response.json()) as { error?: string; detail?: string };
@@ -18,7 +20,7 @@ async function parseError(response: Response): Promise<string> {
 
 export const apiService = {
   async getWorkerHealth(): Promise<WorkerHealthResponse> {
-    const response = await fetch('/api/speech/health');
+    const response = await fetch(`${API_BASE}/api/speech/health`);
     if (!response.ok) {
       throw new Error(await parseError(response));
     }
@@ -26,7 +28,7 @@ export const apiService = {
   },
 
   async getAiVoices(): Promise<VoiceOption[]> {
-    const response = await fetch('/api/speech/voices');
+    const response = await fetch(`${API_BASE}/api/speech/voices`);
     if (!response.ok) {
       throw new Error(await parseError(response));
     }
@@ -34,7 +36,7 @@ export const apiService = {
   },
 
   async generateAiSpeech(request: SpeechGenerateRequest): Promise<SpeechGenerateResponse> {
-    const response = await fetch('/api/speech/generate', {
+    const response = await fetch(`${API_BASE}/api/speech/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -42,14 +44,19 @@ export const apiService = {
     if (!response.ok) {
       throw new Error(await parseError(response));
     }
-    return response.json() as Promise<SpeechGenerateResponse>;
+    const data = (await response.json()) as SpeechGenerateResponse;
+    return {
+      ...data,
+      audioUrl: data.audioUrl.startsWith('http') ? data.audioUrl : `${API_BASE}${data.audioUrl}`,
+      downloadUrl: data.downloadUrl.startsWith('http') ? data.downloadUrl : `${API_BASE}${data.downloadUrl}`,
+    };
   },
 
   async uploadDocument(file: File): Promise<DocumentUploadResponse> {
     const form = new FormData();
     form.append('file', file);
 
-    const response = await fetch('/api/documents/upload', {
+    const response = await fetch(`${API_BASE}/api/documents/upload`, {
       method: 'POST',
       body: form,
     });
@@ -60,7 +67,7 @@ export const apiService = {
   },
 
   async deleteDocument(id: string): Promise<void> {
-    await fetch(`/api/documents/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await fetch(`${API_BASE}/api/documents/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
   async transcribeAudio(file: File, language?: string): Promise<TranscriptionResponse> {
@@ -70,7 +77,7 @@ export const apiService = {
       form.append('language', language);
     }
 
-    const response = await fetch('/api/speech/transcribe', {
+    const response = await fetch(`${API_BASE}/api/speech/transcribe`, {
       method: 'POST',
       body: form,
     });

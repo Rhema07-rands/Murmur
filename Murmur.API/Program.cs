@@ -9,14 +9,11 @@ builder.Services.Configure<FormOptions>(options =>
     options.MultipartBodyLengthLimit = 52_428_800; // 50 MB
 });
 
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-    ?? ["http://localhost:5173", "http://127.0.0.1:5173"];
-
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("MurmurCors", policy =>
     {
-        policy.WithOrigins(allowedOrigins)
+        policy.AllowAnyOrigin()
             .AllowAnyHeader()
             .AllowAnyMethod();
     });

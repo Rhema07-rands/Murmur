@@ -66,8 +66,8 @@ export function VoiceSelector({
           className={`toggle-btn ${engine === 'ai' ? 'active' : ''}`}
           onClick={() => onEngineChange('ai')}
         >
-          <strong>AI Speech (Chatterbox)</strong>
-          <span>{aiAvailable ? 'Local GPU Neural TTS + MP3 Export' : 'Worker Offline — Start Python Worker'}</span>
+          <strong>AI Neural Voices</strong>
+          <span>{aiAvailable ? 'High-Def AI Voices & MP3 Export' : 'Connecting to API...'}</span>
         </button>
       </div>
 
@@ -119,14 +119,14 @@ export function VoiceSelector({
       ) : (
         <div className="controls-grid">
           <label className="field">
-            <span>AI Voice (Chatterbox)</span>
+            <span>AI Neural Voice</span>
             <select
               value={selectedAiVoiceId}
               onChange={(e) => onAiVoiceChange(e.target.value)}
             >
               {aiVoices.map((voice) => (
                 <option key={voice.id} value={voice.id}>
-                  {voice.name} — {voice.accent}
+                  {voice.name} ({voice.accent})
                 </option>
               ))}
             </select>
