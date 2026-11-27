@@ -30,6 +30,7 @@ const DEFAULT_AI_VOICES: VoiceOption[] = [
 
 export function App() {
   const [text, setText] = useState('');
+  const [cursorPos, setCursorPos] = useState(0);
   const [engine, setEngine] = useState<SpeechEngine>('ai');
   const [workerHealth, setWorkerHealth] = useState<WorkerHealthResponse>({
     available: true,
@@ -56,6 +57,7 @@ export function App() {
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPlayingAi, setIsPlayingAi] = useState(false);
+  const [isAiPaused, setIsAiPaused] = useState(false);
   const [generatedAudio, setGeneratedAudio] = useState<SpeechGenerateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,14 +96,15 @@ export function App() {
 
   const handlePlayBrowser = () => {
     setError(null);
-    if (!text.trim()) {
-      setError('Please enter text or load a document before playing speech.');
+    const textToSpeak = cursorPos > 0 ? text.slice(cursorPos) : text;
+    if (!textToSpeak.trim()) {
+      setError('Please enter text or position the cursor before some text.');
       return;
     }
 
     browserSpeechService.speak(
       {
-        text,
+        text: textToSpeak,
         voiceURI: selectedBrowserVoiceURI,
         rate: speed,
         pitch,
@@ -131,12 +134,13 @@ export function App() {
 
   const handlePlayAi = async () => {
     setError(null);
-    if (!text.trim()) {
-      setError('Please enter text or load a document before playing speech.');
+    const textToSpeak = cursorPos > 0 ? text.slice(cursorPos) : text;
+    if (!textToSpeak.trim()) {
+      setError('Please enter text or select a valid position to play from.');
       return;
     }
 
-    if (text.length > 50_000) {
+    if (textToSpeak.length > 50_000) {
       setError('Text exceeds the 50,000 character limit per request.');
       return;
     }
@@ -147,9 +151,11 @@ export function App() {
     }
 
     setIsGenerating(true);
+    setIsAiPaused(false);
+
     try {
       const result = await apiService.generateAiSpeech({
-        text,
+        text: textToSpeak,
         voiceId: selectedAiVoiceId,
         language: 'en',
         speed,
@@ -159,18 +165,28 @@ export function App() {
 
       setGeneratedAudio(result);
 
-      // Instantly start playback directly in the browser!
       const audio = new Audio(result.audioUrl);
       globalAudioRef.current = audio;
       audio.playbackRate = speed;
 
-      audio.onplay = () => setIsPlayingAi(true);
+      audio.onplay = () => {
+        setIsPlayingAi(true);
+        setIsAiPaused(false);
+      };
+      audio.onpause = () => {
+        if (!audio.ended) {
+          setIsAiPaused(true);
+          setIsPlayingAi(false);
+        }
+      };
       audio.onended = () => {
         setIsPlayingAi(false);
+        setIsAiPaused(false);
         globalAudioRef.current = null;
       };
       audio.onerror = () => {
         setIsPlayingAi(false);
+        setIsAiPaused(false);
         globalAudioRef.current = null;
       };
 
@@ -182,6 +198,26 @@ export function App() {
     }
   };
 
+  const handlePauseAi = () => {
+    if (globalAudioRef.current && !globalAudioRef.current.paused) {
+      globalAudioRef.current.pause();
+      setIsAiPaused(true);
+      setIsPlayingAi(false);
+    }
+  };
+
+  const handleResumeAi = async () => {
+    if (globalAudioRef.current && globalAudioRef.current.paused) {
+      try {
+        await globalAudioRef.current.play();
+        setIsPlayingAi(true);
+        setIsAiPaused(false);
+      } catch {
+        setError('Could not resume audio.');
+      }
+    }
+  };
+
   const handleStopAi = () => {
     if (globalAudioRef.current) {
       globalAudioRef.current.pause();
@@ -189,6 +225,15 @@ export function App() {
       globalAudioRef.current = null;
     }
     setIsPlayingAi(false);
+    setIsAiPaused(false);
+  };
+
+  const handleSkipAi = (seconds: number) => {
+    if (globalAudioRef.current) {
+      const current = globalAudioRef.current.currentTime;
+      const duration = globalAudioRef.current.duration || 0;
+      globalAudioRef.current.currentTime = Math.max(0, Math.min(duration, current + seconds));
+    }
   };
 
   return (
@@ -199,13 +244,17 @@ export function App() {
         <div className="primary-col">
           <TextEditor
             text={text}
-            onChange={setText}
+            onChange={(val) => {
+              setText(val);
+            }}
+            onCursorChange={(pos) => setCursorPos(pos)}
             aiAvailable={workerHealth?.available ?? true}
           />
 
           <DocumentUploader
             onLoadText={(loaded) => {
               setText(loaded);
+              setCursorPos(0);
               setError(null);
             }}
           />
@@ -231,7 +280,12 @@ export function App() {
             selectedAiVoiceId={selectedAiVoiceId}
             onAiVoiceChange={setSelectedAiVoiceId}
             speed={speed}
-            onSpeedChange={setSpeed}
+            onSpeedChange={(val) => {
+              setSpeed(val);
+              if (globalAudioRef.current) {
+                globalAudioRef.current.playbackRate = val;
+              }
+            }}
             pitch={pitch}
             onPitchChange={setPitch}
             exaggeration={exaggeration}
@@ -245,7 +299,9 @@ export function App() {
             isPaused={isPaused}
             isGenerating={isGenerating}
             isPlayingAi={isPlayingAi}
+            isAiPaused={isAiPaused}
             browserProgress={browserProgress}
+            startCursorPos={cursorPos}
             onPlayBrowser={handlePlayBrowser}
             onPauseBrowser={() => browserSpeechService.pause()}
             onResumeBrowser={() => browserSpeechService.resume()}
@@ -256,12 +312,15 @@ export function App() {
               setBrowserProgress(null);
             }}
             onPlayAi={() => void handlePlayAi()}
+            onPauseAi={handlePauseAi}
+            onResumeAi={() => void handleResumeAi()}
             onStopAi={handleStopAi}
+            onSkipAi={handleSkipAi}
           />
 
           {error && <p className="error-banner">{error}</p>}
 
-          <AudioPlayer generated={generatedAudio} />
+          <AudioPlayer generated={generatedAudio} audioRefShared={globalAudioRef} />
         </div>
       </main>
     </div>

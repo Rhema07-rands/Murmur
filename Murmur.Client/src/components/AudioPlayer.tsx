@@ -3,6 +3,7 @@ import type { SpeechGenerateResponse } from '../types/murmur';
 
 interface AudioPlayerProps {
   generated: SpeechGenerateResponse | null;
+  audioRefShared?: React.RefObject<HTMLAudioElement | null>;
 }
 
 function formatTime(seconds: number): string {
@@ -12,8 +13,10 @@ function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-export function AudioPlayer({ generated }: AudioPlayerProps) {
-  const audioRef = useRef<HTMLAudioElement>(null);
+export function AudioPlayer({ generated, audioRefShared }: AudioPlayerProps) {
+  const localRef = useRef<HTMLAudioElement>(null);
+  const audioRef = audioRefShared || localRef;
+
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -58,6 +61,12 @@ export function AudioPlayer({ generated }: AudioPlayerProps) {
     setPlaying(false);
   };
 
+  const skipSeconds = (secs: number) => {
+    const el = audioRef.current;
+    if (!el) return;
+    el.currentTime = Math.max(0, Math.min(el.duration || 0, el.currentTime + secs));
+  };
+
   return (
     <section className="card audio-player-card">
       <div className="card-header">
@@ -88,10 +97,13 @@ export function AudioPlayer({ generated }: AudioPlayerProps) {
 
       <div className="player-controls">
         <button type="button" className="btn btn-secondary" onClick={() => void togglePlay()}>
-          {playing ? 'Pause' : 'Play'}
+          {playing ? '⏸ Pause' : '▶ Play'}
+        </button>
+        <button type="button" className="btn btn-secondary" onClick={() => skipSeconds(10)} title="Skip forward 10 seconds">
+          ⏩ +10s
         </button>
         <button type="button" className="btn btn-ghost" onClick={stopAudio}>
-          Stop
+          ⏹ Stop
         </button>
 
         <input

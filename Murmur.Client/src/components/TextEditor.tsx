@@ -4,12 +4,20 @@ import { apiService } from '../services/apiService';
 interface TextEditorProps {
   text: string;
   onChange: (value: string) => void;
+  onCursorChange?: (cursorPos: number) => void;
   maxChars?: number;
   aiAvailable: boolean;
 }
 
-export function TextEditor({ text, onChange, maxChars = 50_000, aiAvailable }: TextEditorProps) {
+export function TextEditor({
+  text,
+  onChange,
+  onCursorChange,
+  maxChars = 50_000,
+  aiAvailable,
+}: TextEditorProps) {
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [transcribing, setTranscribing] = useState(false);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
 
@@ -27,6 +35,13 @@ export function TextEditor({ text, onChange, maxChars = 50_000, aiAvailable }: T
       setTranscribeError(err instanceof Error ? err.message : 'Transcription failed.');
     } finally {
       setTranscribing(false);
+    }
+  };
+
+  const notifyCursor = () => {
+    if (textareaRef.current && onCursorChange) {
+      const pos = textareaRef.current.selectionStart;
+      onCursorChange(pos);
     }
   };
 
@@ -65,7 +80,10 @@ export function TextEditor({ text, onChange, maxChars = 50_000, aiAvailable }: T
             type="button"
             className="btn btn-ghost"
             disabled={!text}
-            onClick={() => onChange('')}
+            onClick={() => {
+              onChange('');
+              onCursorChange?.(0);
+            }}
           >
             Clear
           </button>
@@ -73,10 +91,17 @@ export function TextEditor({ text, onChange, maxChars = 50_000, aiAvailable }: T
       </div>
 
       <textarea
+        ref={textareaRef}
         className={`text-editor ${overLimit ? 'invalid' : ''}`}
         value={text}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Type or paste text here, or upload a .pdf / .epub document below..."
+        onChange={(e) => {
+          onChange(e.target.value);
+          notifyCursor();
+        }}
+        onClick={notifyCursor}
+        onKeyUp={notifyCursor}
+        onSelect={notifyCursor}
+        placeholder="Type or paste text here, or upload a .pdf / .epub / .docx document below... (Click anywhere in the text to start reading from that spot!)"
         rows={10}
         aria-label="Text to convert to speech"
       />
