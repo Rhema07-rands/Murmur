@@ -1,0 +1,140 @@
+import { useEffect, useRef, useState } from 'react';
+import type { SpeechGenerateResponse } from '../types/murmur';
+
+interface AudioPlayerProps {
+  generated: SpeechGenerateResponse | null;
+}
+
+function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+export function AudioPlayer({ generated }: AudioPlayerProps) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPlaying(false);
+    setCurrentTime(0);
+    setDuration(generated?.durationSeconds ?? 0);
+    setError(null);
+    if (audioRef.current && generated) {
+      audioRef.current.load();
+      audioRef.current.playbackRate = playbackRate;
+    }
+  }, [generated]);
+
+  if (!generated) {
+    return null;
+  }
+
+  const togglePlay = async () => {
+    const el = audioRef.current;
+    if (!el) return;
+    setError(null);
+    try {
+      if (playing) {
+        el.pause();
+      } else {
+        await el.play();
+      }
+    } catch {
+      setError('Could not play generated audio.');
+    }
+  };
+
+  const stopAudio = () => {
+    const el = audioRef.current;
+    if (!el) return;
+    el.pause();
+    el.currentTime = 0;
+    setPlaying(false);
+  };
+
+  return (
+    <section className="card audio-player-card">
+      <div className="card-header">
+        <h2>Generated Audio (MP3)</h2>
+        <a
+          className="btn btn-primary"
+          href={generated.downloadUrl}
+          download={`murmur-${generated.audioId.slice(0, 8)}.mp3`}
+        >
+          Download MP3
+        </a>
+      </div>
+
+      <audio
+        ref={audioRef}
+        src={generated.audioUrl}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+        onLoadedMetadata={(e) => {
+          if (Number.isFinite(e.currentTarget.duration)) {
+            setDuration(e.currentTarget.duration);
+          }
+        }}
+        onError={() => setError('Failed to load audio stream.')}
+      />
+
+      <div className="player-controls">
+        <button type="button" className="btn btn-secondary" onClick={() => void togglePlay()}>
+          {playing ? 'Pause' : 'Play'}
+        </button>
+        <button type="button" className="btn btn-ghost" onClick={stopAudio}>
+          Stop
+        </button>
+
+        <input
+          type="range"
+          className="seek-bar"
+          min={0}
+          max={duration || 1}
+          step={0.1}
+          value={Math.min(currentTime, duration || 1)}
+          onChange={(e) => {
+            const next = parseFloat(e.target.value);
+            setCurrentTime(next);
+            if (audioRef.current) {
+              audioRef.current.currentTime = next;
+            }
+          }}
+          aria-label="Audio playback progress"
+        />
+
+        <span className="time-display">
+          {formatTime(currentTime)} / {formatTime(duration)}
+        </span>
+
+        <select
+          value={playbackRate}
+          onChange={(e) => {
+            const rate = parseFloat(e.target.value);
+            setPlaybackRate(rate);
+            if (audioRef.current) {
+              audioRef.current.playbackRate = rate;
+            }
+          }}
+          aria-label="Playback speed"
+        >
+          <option value="0.75">0.75x</option>
+          <option value="1">1.0x</option>
+          <option value="1.25">1.25x</option>
+          <option value="1.5">1.5x</option>
+          <option value="2">2.0x</option>
+        </select>
+      </div>
+
+      {error && <p className="error-banner">{error}</p>}
+    </section>
+  );
+}

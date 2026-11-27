@@ -1,0 +1,22 @@
+services:
+  # 1. Frontend Static Site
+  - type: web
+    name: murmur-client
+    env: static
+    buildCommand: cd Murmur.Client && npm install && npm run build
+    staticPublishPath: Murmur.Client/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  # 2. ASP.NET Core Backend API
+  - type: web
+    name: murmur-api
+    env: dotnet
+    rootDir: Murmur.API
+    buildCommand: dotnet publish -c Release -o out
+    startCommand: dotnet out/Murmur.API.dll
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production

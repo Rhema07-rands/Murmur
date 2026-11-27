@@ -1,0 +1,24 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Node / React
+node_modules/
+dist/
+.env
+.env.local
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Temporary audio / uploads
+Murmur.API/TempStorage/
+Murmur.SpeechWorker/temp_audio/
+*.wav
+*.mp3
