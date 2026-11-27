@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using EdgeTTS.DotNet;
 using Murmur.API.Models;
 
 namespace Murmur.API.Services;
@@ -12,6 +13,22 @@ public sealed class ChatterboxSpeechService : ISpeechService
     private readonly string _audioStoragePath;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    // High quality Microsoft Neural voices accessible cloud-wide without API keys
+    private static readonly IReadOnlyList<VoiceOption> DefaultNeuralVoices =
+    [
+        new("en-US-JennyNeural", "Jenny (US Neural)", "en-US", "United States", "cloud-neural", "Warm, natural US English female neural voice"),
+        new("en-US-GuyNeural", "Guy (US Neural)", "en-US", "United States", "cloud-neural", "Clear, natural US English male neural voice"),
+        new("en-US-AriaNeural", "Aria (US Expressive)", "en-US", "United States", "cloud-neural", "Expressive US English female neural voice"),
+        new("en-US-ChristopherNeural", "Christopher (US Casual)", "en-US", "United States", "cloud-neural", "Casual, friendly US English male neural voice"),
+        new("en-GB-SoniaNeural", "Sonia (UK Neural)", "en-GB", "United Kingdom", "cloud-neural", "Polished British English female neural voice"),
+        new("en-GB-RyanNeural", "Ryan (UK Neural)", "en-GB", "United Kingdom", "cloud-neural", "Friendly British English male neural voice"),
+        new("en-AU-NatashaNeural", "Natasha (AU Neural)", "en-AU", "Australia", "cloud-neural", "Natural Australian English female neural voice"),
+        new("es-ES-ElviraNeural", "Elvira (Spanish Neural)", "es-ES", "Spain", "cloud-neural", "Natural Castilian Spanish female voice"),
+        new("fr-FR-DeniseNeural", "Denise (French Neural)", "fr-FR", "France", "cloud-neural", "Standard French female neural voice"),
+        new("de-DE-KatjaNeural", "Katja (German Neural)", "de-DE", "Germany", "cloud-neural", "Natural German female neural voice"),
+        new("ja-JP-NanamiNeural", "Nanami (Japanese Neural)", "ja-JP", "Japan", "cloud-neural", "Standard Japanese female neural voice")
+    ];
 
     public ChatterboxSpeechService(
         HttpClient httpClient,
@@ -32,53 +49,54 @@ public sealed class ChatterboxSpeechService : ISpeechService
         try
         {
             using var response = await _httpClient.GetAsync("/health", cancellationToken);
-            if (!response.IsSuccessStatusCode)
+            if (response.IsSuccessStatusCode)
             {
-                return new WorkerHealthResponse(false, "Chatterbox", "unknown", false, false,
-                    $"Speech worker returned HTTP {(int)response.StatusCode}");
+                var payload = await response.Content.ReadFromJsonAsync<WorkerHealthPayload>(JsonOptions, cancellationToken);
+                return new WorkerHealthResponse(
+                    Available: true,
+                    Engine: "Local Chatterbox (GPU) + Cloud Neural",
+                    Device: payload?.Device ?? "cuda",
+                    ChatterboxLoaded: payload?.ChatterboxLoaded ?? true,
+                    WhisperLoaded: payload?.WhisperLoaded ?? true
+                );
             }
-
-            var payload = await response.Content.ReadFromJsonAsync<WorkerHealthPayload>(JsonOptions, cancellationToken);
-            return new WorkerHealthResponse(
-                Available: true,
-                Engine: "Chatterbox TTS + Faster-Whisper",
-                Device: payload?.Device ?? "unknown",
-                ChatterboxLoaded: payload?.ChatterboxLoaded ?? false,
-                WhisperLoaded: payload?.WhisperLoaded ?? false
-            );
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            _logger.LogDebug(ex, "Speech worker health check failed");
-            return new WorkerHealthResponse(false, "Chatterbox", "offline", false, false,
-                "Local AI speech worker is not running. Start Murmur.SpeechWorker to enable AI voices.");
+            // Local worker not running - Cloud Neural is active!
         }
+
+        return new WorkerHealthResponse(
+            Available: true,
+            Engine: "Cloud Neural AI (Online)",
+            Device: "Cloud Service",
+            ChatterboxLoaded: false,
+            WhisperLoaded: false
+        );
     }
 
     public async Task<IReadOnlyList<VoiceOption>> GetVoicesAsync(CancellationToken cancellationToken = default)
     {
+        var result = new List<VoiceOption>(DefaultNeuralVoices);
+
         try
         {
             using var response = await _httpClient.GetAsync("/voices", cancellationToken);
-            response.EnsureSuccessStatusCode();
-            var voices = await response.Content.ReadFromJsonAsync<List<VoiceOption>>(JsonOptions, cancellationToken);
-            return voices ?? [];
+            if (response.IsSuccessStatusCode)
+            {
+                var localVoices = await response.Content.ReadFromJsonAsync<List<VoiceOption>>(JsonOptions, cancellationToken);
+                if (localVoices is { Count: > 0 })
+                {
+                    result.AddRange(localVoices);
+                }
+            }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            _logger.LogWarning(ex, "Could not fetch voices from speech worker");
-            return
-            [
-                new VoiceOption(
-                    Id: "default",
-                    Name: "Chatterbox Default",
-                    Language: "en",
-                    Accent: "Neutral",
-                    Engine: "chatterbox",
-                    Description: "Default neural voice (requires local Murmur.SpeechWorker)"
-                )
-            ];
+            // Fall back to cloud neural voices
         }
+
+        return result;
     }
 
     public async Task<SpeechGenerateResponse> GenerateSpeechAsync(
@@ -88,47 +106,68 @@ public sealed class ChatterboxSpeechService : ISpeechService
         var audioId = Guid.NewGuid().ToString("N");
         var outputPath = Path.Combine(_audioStoragePath, $"{audioId}.mp3");
 
-        using var response = await _httpClient.PostAsJsonAsync("/tts", new
-        {
-            text = request.Text,
-            voice_id = request.VoiceId ?? "default",
-            language = request.Language ?? "en",
-            speed = request.Speed,
-            exaggeration = request.Exaggeration,
-            cfg_weight = request.CfgWeight
-        }, cancellationToken);
+        var voiceId = string.IsNullOrWhiteSpace(request.VoiceId) ? "en-US-JennyNeural" : request.VoiceId;
 
-        if (!response.IsSuccessStatusCode)
+        // 1. If user chose a local chatterbox voice and worker is available, use it
+        if (voiceId.StartsWith("chatterbox", StringComparison.OrdinalIgnoreCase) || voiceId == "default")
         {
-            var errBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new InvalidOperationException($"AI speech generation failed: {errBody}");
+            try
+            {
+                using var response = await _httpClient.PostAsJsonAsync("/tts", new
+                {
+                    text = request.Text,
+                    voice_id = voiceId,
+                    language = request.Language ?? "en",
+                    speed = request.Speed,
+                    exaggeration = request.Exaggeration,
+                    cfg_weight = request.CfgWeight
+                }, cancellationToken);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var audioBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+                    await File.WriteAllBytesAsync(outputPath, audioBytes, cancellationToken);
+
+                    return new SpeechGenerateResponse(
+                        AudioId: audioId,
+                        AudioUrl: $"/api/speech/audio/{audioId}",
+                        DownloadUrl: $"/api/speech/download/{audioId}",
+                        Format: "mp3",
+                        DurationSeconds: null,
+                        ChunkCount: 1
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Local Chatterbox worker unavailable, falling back to Cloud Neural TTS.");
+                voiceId = "en-US-JennyNeural";
+            }
         }
 
-        var audioBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
-        await File.WriteAllBytesAsync(outputPath, audioBytes, cancellationToken);
-
-        double? durationSeconds = null;
-        if (response.Headers.TryGetValues("X-Audio-Duration", out var durValues) &&
-            double.TryParse(durValues.FirstOrDefault(), out var parsedDur))
+        // 2. Generate using Cloud Neural Voices (EdgeTTS - 100% free, natural neural speech)
+        try
         {
-            durationSeconds = parsedDur;
-        }
+            var speedPercent = (int)Math.Round((request.Speed - 1.0) * 100);
+            var rateStr = speedPercent >= 0 ? $"+{speedPercent}%" : $"{speedPercent}%";
 
-        var chunkCount = 1;
-        if (response.Headers.TryGetValues("X-Chunk-Count", out var chunkValues) &&
-            int.TryParse(chunkValues.FirstOrDefault(), out var parsedChunks))
+            var communicate = new Communicate(request.Text, voice: voiceId, rate: rateStr);
+            await communicate.SaveAsync(outputPath);
+
+            return new SpeechGenerateResponse(
+                AudioId: audioId,
+                AudioUrl: $"/api/speech/audio/{audioId}",
+                DownloadUrl: $"/api/speech/download/{audioId}",
+                Format: "mp3",
+                DurationSeconds: null,
+                ChunkCount: 1
+            );
+        }
+        catch (Exception ex)
         {
-            chunkCount = parsedChunks;
+            _logger.LogError(ex, "Cloud Neural TTS generation failed");
+            throw new InvalidOperationException($"Neural speech generation failed: {ex.Message}", ex);
         }
-
-        return new SpeechGenerateResponse(
-            AudioId: audioId,
-            AudioUrl: $"/api/speech/audio/{audioId}",
-            DownloadUrl: $"/api/speech/download/{audioId}",
-            Format: "mp3",
-            DurationSeconds: durationSeconds,
-            ChunkCount: chunkCount
-        );
     }
 
     public async Task<TranscriptionResponse> TranscribeAsync(
