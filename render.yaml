@@ -13,10 +13,9 @@ services:
   # 2. ASP.NET Core Backend API
   - type: web
     name: murmur-api
-    env: dotnet
-    rootDir: Murmur.API
-    buildCommand: dotnet publish -c Release -o out
-    startCommand: dotnet out/Murmur.API.dll
+    env: docker
+    dockerContext: Murmur.API
+    dockerfilePath: Murmur.API/Dockerfile
     envVars:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
