@@ -27,6 +27,21 @@ public sealed record SpeechGenerateResponse(
     int ChunkCount
 );
 
+public sealed record SpeechJobStatus(
+    string JobId,
+    string Status,
+    int ProgressPercent,
+    int CurrentChunk,
+    int TotalChunks,
+    int ProcessedCharacters,
+    int TotalCharacters,
+    int EstimatedSecondsRemaining,
+    string? AudioId = null,
+    string? AudioUrl = null,
+    string? DownloadUrl = null,
+    string? Error = null
+);
+
 public sealed record TranscriptionResponse(
     string Text,
     string Language,

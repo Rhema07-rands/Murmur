@@ -318,6 +318,7 @@ public static class EdgeTtsClient
         string voice,
         string rateStr,
         string outputPath,
+        Action<int, int, int, int>? onProgress = null,
         CancellationToken cancellationToken = default)
     {
         var token = GenerateSecMsGecToken();
@@ -348,11 +349,16 @@ public static class EdgeTtsClient
         await ws.SendAsync(Encoding.UTF8.GetBytes(configMsg), WebSocketMessageType.Text, true, cancellationToken);
 
         using var fileStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        var chunks = ChunkText(text, 2500);
+        var chunks = ChunkText(text, 5000);
+        var totalChars = text.Length;
+        var processedChars = 0;
         var buffer = new byte[8192];
 
-        foreach (var chunk in chunks)
+        for (var i = 0; i < chunks.Count; i++)
         {
+            var chunk = chunks[i];
+            onProgress?.Invoke(i + 1, chunks.Count, processedChars, totalChars);
+
             var requestId = Guid.NewGuid().ToString("N");
             var ssml =
                 $"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>" +
@@ -400,6 +406,9 @@ public static class EdgeTtsClient
                     }
                 }
             }
+
+            processedChars += chunk.Length;
+            onProgress?.Invoke(i + 1, chunks.Count, processedChars, totalChars);
         }
 
         try

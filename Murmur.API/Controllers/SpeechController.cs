@@ -39,9 +39,9 @@ public sealed class SpeechController : ControllerBase
             return BadRequest(new { error = "Text cannot be empty." });
         }
 
-        if (request.Text.Length > 50_000)
+        if (request.Text.Length > 100_000)
         {
-            return BadRequest(new { error = "Text exceeds the 50,000 character limit per request. Please select fewer sections." });
+            return BadRequest(new { error = "Text exceeds the 100,000 character limit per request. Please select fewer sections." });
         }
 
         try
@@ -60,6 +60,42 @@ public sealed class SpeechController : ControllerBase
         {
             return BadRequest(new { error = ex.Message });
         }
+    }
+
+    [HttpPost("generate-job")]
+    public ActionResult<SpeechJobStatus> GenerateJob([FromBody] SpeechGenerateRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Text))
+        {
+            return BadRequest(new { error = "Text cannot be empty." });
+        }
+
+        if (request.Text.Length > 100_000)
+        {
+            return BadRequest(new { error = "Text exceeds the 100,000 character limit per request. Please select fewer sections." });
+        }
+
+        var job = _speechService.StartSpeechJob(request);
+        return Ok(job);
+    }
+
+    [HttpGet("job/{jobId}")]
+    public ActionResult<SpeechJobStatus> GetJobStatus(string jobId)
+    {
+        var job = _speechService.GetSpeechJob(jobId);
+        if (job is null)
+        {
+            return NotFound(new { error = "Speech job was not found or has expired." });
+        }
+
+        return Ok(job);
+    }
+
+    [HttpPost("job/{jobId}/cancel")]
+    public IActionResult CancelJob(string jobId)
+    {
+        var success = _speechService.CancelSpeechJob(jobId);
+        return Ok(new { success });
     }
 
     [HttpGet("audio/{id}")]

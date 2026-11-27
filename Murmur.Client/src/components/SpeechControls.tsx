@@ -1,4 +1,4 @@
-import type { SpeechEngine } from '../types/murmur';
+import type { SpeechEngine, SpeechJobStatus } from '../types/murmur';
 import { Forward10Icon, PauseIcon, PlayIcon, Rewind10Icon, StopIcon } from './Icons';
 
 interface SpeechControlsProps {
@@ -6,6 +6,7 @@ interface SpeechControlsProps {
   isSpeaking: boolean;
   isPaused: boolean;
   isGenerating: boolean;
+  generationProgress?: SpeechJobStatus | null;
   isPlayingAi: boolean;
   isAiPaused: boolean;
   hasAiAudio: boolean;
@@ -25,6 +26,7 @@ interface SpeechControlsProps {
   onStopAi: () => void;
   onSkipAi: (seconds: number) => void;
   onSeekAi: (time: number) => void;
+  onCancelGeneration?: () => void;
 }
 
 function formatTime(seconds: number): string {
@@ -39,6 +41,7 @@ export function SpeechControls({
   isSpeaking,
   isPaused,
   isGenerating,
+  generationProgress,
   isPlayingAi,
   isAiPaused,
   hasAiAudio,
@@ -58,6 +61,7 @@ export function SpeechControls({
   onStopAi,
   onSkipAi,
   onSeekAi,
+  onCancelGeneration,
 }: SpeechControlsProps) {
   const effectiveElapsed = aiCurrentTime / speed;
   const effectiveTotal = aiDuration / speed;
@@ -101,6 +105,50 @@ export function SpeechControls({
         </>
       ) : (
         <>
+          {isGenerating && generationProgress && (
+            <div className="generation-progress-box" aria-live="polite">
+              <div className="generation-progress-header">
+                <span className="generation-status-title">
+                  <span className="spinner-dot" />
+                  Generating Neural Audio ({generationProgress.progressPercent}%)
+                </span>
+                <span className="generation-eta-badge">
+                  ⏱ {generationProgress.estimatedSecondsRemaining > 0
+                    ? `~${generationProgress.estimatedSecondsRemaining}s remaining`
+                    : 'Finalizing...'}
+                </span>
+              </div>
+
+              <div
+                className="generation-track"
+                role="progressbar"
+                aria-valuenow={generationProgress.progressPercent}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <div
+                  className="generation-fill"
+                  style={{ width: `${Math.max(4, generationProgress.progressPercent)}%` }}
+                />
+              </div>
+
+              <div className="generation-details-row">
+                <span className="generation-detail">
+                  Chunk {generationProgress.currentChunk} of {generationProgress.totalChunks} • {generationProgress.processedCharacters.toLocaleString()} / {generationProgress.totalCharacters.toLocaleString()} chars
+                </span>
+                {onCancelGeneration && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-cancel-job"
+                    onClick={onCancelGeneration}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="button-row">
             {!isPlayingAi && !isAiPaused ? (
               <button

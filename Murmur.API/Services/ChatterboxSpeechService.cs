@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -10,6 +12,7 @@ public sealed class ChatterboxSpeechService : ISpeechService
     private readonly HttpClient _httpClient;
     private readonly ILogger<ChatterboxSpeechService> _logger;
     private readonly string _audioStoragePath;
+    private readonly ConcurrentDictionary<string, SpeechJobState> _jobs = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -149,7 +152,7 @@ public sealed class ChatterboxSpeechService : ISpeechService
         // 2. Generate using authenticated Cloud Neural TTS (speed is applied cleanly on client playbackRate 0.5x-3x)
         try
         {
-            await EdgeTtsClient.SynthesizeToFileAsync(request.Text, voiceId, "+0%", outputPath, cancellationToken);
+            await EdgeTtsClient.SynthesizeToFileAsync(request.Text, voiceId, "+0%", outputPath, onProgress: null, cancellationToken);
 
             return new SpeechGenerateResponse(
                 AudioId: audioId,
@@ -206,6 +209,147 @@ public sealed class ChatterboxSpeechService : ISpeechService
         return File.Exists(path) ? path : null;
     }
 
+    public SpeechJobStatus StartSpeechJob(SpeechGenerateRequest request)
+    {
+        var jobId = Guid.NewGuid().ToString("N");
+        var audioId = Guid.NewGuid().ToString("N");
+        var outputPath = Path.Combine(_audioStoragePath, $"{audioId}.mp3");
+        var totalChars = request.Text.Length;
+        var estChunks = Math.Max(1, (int)Math.Ceiling(totalChars / 5000.0));
+        // Estimate ~3.5 seconds per chunk
+        var initialEta = Math.Max(2, estChunks * 3);
+
+        var state = new SpeechJobState
+        {
+            JobId = jobId,
+            AudioId = audioId,
+            OutputPath = outputPath,
+            Request = request,
+            TotalCharacters = totalChars,
+            TotalChunks = estChunks,
+            EstimatedSecondsRemaining = initialEta,
+            Status = "queued"
+        };
+
+        _jobs[jobId] = state;
+
+        _ = Task.Run(async () =>
+        {
+            state.Status = "processing";
+            state.Stopwatch.Start();
+
+            var voiceId = string.IsNullOrWhiteSpace(request.VoiceId) ? "en-US-JennyNeural" : request.VoiceId;
+            var isCloudNeuralVoice = DefaultNeuralVoices.Any(v =>
+                v.Id.Equals(voiceId, StringComparison.OrdinalIgnoreCase));
+
+            try
+            {
+                if (!isCloudNeuralVoice)
+                {
+                    // Chatterbox local voice
+                    try
+                    {
+                        using var response = await _httpClient.PostAsJsonAsync("/tts", new
+                        {
+                            text = request.Text,
+                            voice_id = voiceId,
+                            language = request.Language ?? "en",
+                            speed = request.Speed,
+                            exaggeration = request.Exaggeration,
+                            cfg_weight = request.CfgWeight
+                        }, state.Cts.Token);
+
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var audioBytes = await response.Content.ReadAsByteArrayAsync(state.Cts.Token);
+                            await File.WriteAllBytesAsync(outputPath, audioBytes, state.Cts.Token);
+
+                            state.Status = "completed";
+                            state.ProgressPercent = 100;
+                            state.ProcessedCharacters = totalChars;
+                            state.CurrentChunk = estChunks;
+                            state.EstimatedSecondsRemaining = 0;
+                            state.AudioUrl = $"/api/speech/audio/{audioId}";
+                            state.DownloadUrl = $"/api/speech/download/{audioId}";
+                            return;
+                        }
+                    }
+                    catch (Exception ex) when (!state.Cts.IsCancellationRequested)
+                    {
+                        _logger.LogWarning(ex, "Local Chatterbox worker unavailable in job, falling back to Cloud Neural TTS.");
+                        voiceId = "en-US-JennyNeural";
+                    }
+                }
+
+                // Cloud Neural TTS streaming with live progress
+                await EdgeTtsClient.SynthesizeToFileAsync(
+                    request.Text,
+                    voiceId,
+                    "+0%",
+                    outputPath,
+                    onProgress: (curChunk, totalC, procChars, totalCChars) =>
+                    {
+                        state.CurrentChunk = curChunk;
+                        state.TotalChunks = totalC;
+                        state.ProcessedCharacters = procChars;
+                        state.TotalCharacters = totalCChars;
+                        state.ProgressPercent = (int)Math.Clamp((double)procChars / totalCChars * 100, 0, 99);
+
+                        var elapsed = state.Stopwatch.Elapsed.TotalSeconds;
+                        if (elapsed > 0.5 && procChars > 0)
+                        {
+                            var charsPerSec = procChars / elapsed;
+                            var remainingChars = totalCChars - procChars;
+                            state.EstimatedSecondsRemaining = (int)Math.Max(1, Math.Ceiling(remainingChars / charsPerSec));
+                        }
+                    },
+                    state.Cts.Token);
+
+                state.Status = "completed";
+                state.ProgressPercent = 100;
+                state.ProcessedCharacters = totalChars;
+                state.CurrentChunk = state.TotalChunks;
+                state.EstimatedSecondsRemaining = 0;
+                state.AudioUrl = $"/api/speech/audio/{audioId}";
+                state.DownloadUrl = $"/api/speech/download/{audioId}";
+            }
+            catch (OperationCanceledException)
+            {
+                state.Status = "cancelled";
+                try { if (File.Exists(outputPath)) File.Delete(outputPath); } catch { }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Background speech generation job {JobId} failed", jobId);
+                state.Status = "failed";
+                state.Error = ex.Message;
+                try { if (File.Exists(outputPath)) File.Delete(outputPath); } catch { }
+            }
+            finally
+            {
+                state.Stopwatch.Stop();
+            }
+        });
+
+        return state.ToStatus();
+    }
+
+    public SpeechJobStatus? GetSpeechJob(string jobId)
+    {
+        return _jobs.TryGetValue(jobId, out var state) ? state.ToStatus() : null;
+    }
+
+    public bool CancelSpeechJob(string jobId)
+    {
+        if (_jobs.TryGetValue(jobId, out var state))
+        {
+            state.Cts.Cancel();
+            state.Status = "cancelled";
+            return true;
+        }
+        return false;
+    }
+
     public void CleanupExpiredAudio(TimeSpan maxAge)
     {
         if (!Directory.Exists(_audioStoragePath))
@@ -228,6 +372,51 @@ public sealed class ChatterboxSpeechService : ISpeechService
                 _logger.LogDebug(ex, "Failed to delete expired audio file {File}", file);
             }
         }
+
+        // Clean up expired jobs
+        foreach (var (id, job) in _jobs)
+        {
+            if (job.CreatedAt < cutoff)
+            {
+                _jobs.TryRemove(id, out _);
+            }
+        }
+    }
+
+    private sealed class SpeechJobState
+    {
+        public required string JobId { get; init; }
+        public required string AudioId { get; init; }
+        public required string OutputPath { get; init; }
+        public required SpeechGenerateRequest Request { get; init; }
+        public string Status { get; set; } = "queued";
+        public int ProgressPercent { get; set; }
+        public int CurrentChunk { get; set; }
+        public int TotalChunks { get; set; } = 1;
+        public int ProcessedCharacters { get; set; }
+        public int TotalCharacters { get; set; }
+        public int EstimatedSecondsRemaining { get; set; }
+        public string? AudioUrl { get; set; }
+        public string? DownloadUrl { get; set; }
+        public string? Error { get; set; }
+        public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+        public Stopwatch Stopwatch { get; } = new();
+        public CancellationTokenSource Cts { get; } = new();
+
+        public SpeechJobStatus ToStatus() => new(
+            JobId: JobId,
+            Status: Status,
+            ProgressPercent: ProgressPercent,
+            CurrentChunk: CurrentChunk,
+            TotalChunks: TotalChunks,
+            ProcessedCharacters: ProcessedCharacters,
+            TotalCharacters: TotalCharacters,
+            EstimatedSecondsRemaining: EstimatedSecondsRemaining,
+            AudioId: AudioId,
+            AudioUrl: AudioUrl,
+            DownloadUrl: DownloadUrl,
+            Error: Error
+        );
     }
 
     private sealed record WorkerHealthPayload(

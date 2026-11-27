@@ -10,6 +10,7 @@ import { browserSpeechService } from './services/browserSpeechService';
 import type {
   SpeechEngine,
   SpeechGenerateResponse,
+  SpeechJobStatus,
   VoiceOption,
   WorkerHealthResponse,
 } from './types/murmur';
@@ -83,9 +84,11 @@ export function App() {
   const [aiDuration, setAiDuration] = useState(0);
   const [spokenAiText, setSpokenAiText] = useState('');
   const [generatedAudio, setGeneratedAudio] = useState<SpeechGenerateResponse | null>(null);
+  const [generationProgress, setGenerationProgress] = useState<SpeechJobStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const globalAudioRef = useRef<HTMLAudioElement | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const speedRef = useRef(speed);
   speedRef.current = speed;
 
@@ -198,8 +201,8 @@ export function App() {
       return;
     }
 
-    if (textToSpeak.length > 50_000) {
-      setError('Text exceeds the 50,000 character limit per request.');
+    if (textToSpeak.length > 100_000) {
+      setError('Text exceeds the 100,000 character limit per request. Please select fewer sections.');
       return;
     }
 
@@ -213,15 +216,36 @@ export function App() {
     setAiCurrentTime(0);
     setAiDuration(0);
 
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    const estChunks = Math.max(1, Math.ceil(textToSpeak.length / 5000));
+    setGenerationProgress({
+      jobId: '',
+      status: 'processing',
+      progressPercent: 0,
+      currentChunk: 1,
+      totalChunks: estChunks,
+      processedCharacters: 0,
+      totalCharacters: textToSpeak.length,
+      estimatedSecondsRemaining: Math.max(2, estChunks * 3),
+    });
+
     try {
-      const result = await apiService.generateAiSpeech({
-        text: textToSpeak,
-        voiceId: selectedAiVoiceId,
-        language: 'en',
-        speed: 1.0,
-        exaggeration,
-        cfgWeight: 0.5,
-      });
+      const result = await apiService.generateAiSpeechWithProgress(
+        {
+          text: textToSpeak,
+          voiceId: selectedAiVoiceId,
+          language: 'en',
+          speed: 1.0,
+          exaggeration,
+          cfgWeight: 0.5,
+        },
+        (status) => {
+          setGenerationProgress(status);
+        },
+        abortController.signal
+      );
 
       setSpokenAiText(textToSpeak);
       setGeneratedAudio(result);
@@ -265,10 +289,24 @@ export function App() {
 
       await audio.play();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'AI speech generation failed.');
+      if ((err as Error).name === 'AbortError' || (err as Error).message.includes('cancelled')) {
+        setError('Audio generation was cancelled.');
+      } else {
+        setError(err instanceof Error ? err.message : 'AI speech generation failed.');
+      }
     } finally {
       setIsGenerating(false);
+      setGenerationProgress(null);
+      abortControllerRef.current = null;
     }
+  };
+
+  const handleCancelGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setIsGenerating(false);
+    setGenerationProgress(null);
   };
 
   const handlePauseAi = () => {
@@ -373,6 +411,7 @@ export function App() {
             isSpeaking={isSpeaking}
             isPaused={isPaused}
             isGenerating={isGenerating}
+            generationProgress={generationProgress}
             isPlayingAi={isPlayingAi}
             isAiPaused={isAiPaused}
             hasAiAudio={generatedAudio !== null}
@@ -398,6 +437,7 @@ export function App() {
             onStopAi={handleStopAi}
             onSkipAi={handleSkipAi}
             onSeekAi={handleSeekAi}
+            onCancelGeneration={handleCancelGeneration}
           />
 
           {error && <p className="error-banner">{error}</p>}

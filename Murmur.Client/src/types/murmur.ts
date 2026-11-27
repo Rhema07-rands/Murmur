@@ -27,6 +27,21 @@ export interface SpeechGenerateResponse {
   chunkCount: number;
 }
 
+export interface SpeechJobStatus {
+  jobId: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  progressPercent: number;
+  currentChunk: number;
+  totalChunks: number;
+  processedCharacters: number;
+  totalCharacters: number;
+  estimatedSecondsRemaining: number;
+  audioId?: string;
+  audioUrl?: string;
+  downloadUrl?: string;
+  error?: string;
+}
+
 export interface WorkerHealthResponse {
   available: boolean;
   engine: string;

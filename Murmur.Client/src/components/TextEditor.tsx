@@ -13,7 +13,7 @@ export function TextEditor({
   text,
   onChange,
   onCursorChange,
-  maxChars = 50_000,
+  maxChars = 100_000,
   aiAvailable,
 }: TextEditorProps) {
   const audioInputRef = useRef<HTMLInputElement>(null);

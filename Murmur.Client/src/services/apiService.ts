@@ -2,6 +2,7 @@ import type {
   DocumentUploadResponse,
   SpeechGenerateRequest,
   SpeechGenerateResponse,
+  SpeechJobStatus,
   TranscriptionResponse,
   VoiceOption,
   WorkerHealthResponse,
@@ -80,6 +81,91 @@ export const apiService = {
       ...data,
       audioUrl: data.audioUrl.startsWith('http') ? data.audioUrl : `${API_BASE}${data.audioUrl}`,
       downloadUrl: data.downloadUrl.startsWith('http') ? data.downloadUrl : `${API_BASE}${data.downloadUrl}`,
+    };
+  },
+
+  async startSpeechJob(request: SpeechGenerateRequest): Promise<SpeechJobStatus> {
+    if (!API_BASE && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      throw new Error('API connection not configured. Please add VITE_API_BASE_URL to your Render Static Site environment settings.');
+    }
+
+    const response = await fetch(`${API_BASE}/api/speech/generate-job`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      throw new Error(await parseError(response));
+    }
+    return response.json() as Promise<SpeechJobStatus>;
+  },
+
+  async getSpeechJobStatus(jobId: string): Promise<SpeechJobStatus> {
+    const response = await fetch(`${API_BASE}/api/speech/job/${jobId}`);
+    if (!response.ok) {
+      throw new Error(await parseError(response));
+    }
+    const data = (await response.json()) as SpeechJobStatus;
+    return {
+      ...data,
+      audioUrl: data.audioUrl ? (data.audioUrl.startsWith('http') ? data.audioUrl : `${API_BASE}${data.audioUrl}`) : undefined,
+      downloadUrl: data.downloadUrl ? (data.downloadUrl.startsWith('http') ? data.downloadUrl : `${API_BASE}${data.downloadUrl}`) : undefined,
+    };
+  },
+
+  async cancelSpeechJob(jobId: string): Promise<void> {
+    try {
+      await fetch(`${API_BASE}/api/speech/job/${jobId}/cancel`, { method: 'POST' });
+    } catch {
+      // Ignore cancellation network errors
+    }
+  },
+
+  async generateAiSpeechWithProgress(
+    request: SpeechGenerateRequest,
+    onProgress: (status: SpeechJobStatus) => void,
+    abortSignal?: AbortSignal
+  ): Promise<SpeechGenerateResponse> {
+    const initialJob = await this.startSpeechJob(request);
+    onProgress(initialJob);
+
+    let currentJob = initialJob;
+    while (currentJob.status === 'queued' || currentJob.status === 'processing') {
+      if (abortSignal?.aborted) {
+        await this.cancelSpeechJob(currentJob.jobId);
+        throw new Error('Generation cancelled by user.');
+      }
+
+      await new Promise((r) => setTimeout(r, 1000));
+
+      if (abortSignal?.aborted) {
+        await this.cancelSpeechJob(currentJob.jobId);
+        throw new Error('Generation cancelled by user.');
+      }
+
+      currentJob = await this.getSpeechJobStatus(currentJob.jobId);
+      onProgress(currentJob);
+    }
+
+    if (currentJob.status === 'failed') {
+      throw new Error(currentJob.error || 'Neural speech generation failed.');
+    }
+
+    if (currentJob.status === 'cancelled') {
+      throw new Error('Speech generation was cancelled.');
+    }
+
+    if (!currentJob.audioUrl || !currentJob.downloadUrl || !currentJob.audioId) {
+      throw new Error('Audio generation finished without producing an audio URL.');
+    }
+
+    return {
+      audioId: currentJob.audioId,
+      audioUrl: currentJob.audioUrl,
+      downloadUrl: currentJob.downloadUrl,
+      format: 'mp3',
+      durationSeconds: null,
+      chunkCount: currentJob.totalChunks,
     };
   },
 

@@ -3,6 +3,12 @@ using Murmur.API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(10);
+    options.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(10);
+});
+
 builder.Services.AddControllers();
 builder.Services.Configure<FormOptions>(options =>
 {

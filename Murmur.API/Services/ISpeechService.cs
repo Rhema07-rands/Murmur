@@ -7,6 +7,9 @@ public interface ISpeechService
     Task<WorkerHealthResponse> GetHealthAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<VoiceOption>> GetVoicesAsync(CancellationToken cancellationToken = default);
     Task<SpeechGenerateResponse> GenerateSpeechAsync(SpeechGenerateRequest request, CancellationToken cancellationToken = default);
+    SpeechJobStatus StartSpeechJob(SpeechGenerateRequest request);
+    SpeechJobStatus? GetSpeechJob(string jobId);
+    bool CancelSpeechJob(string jobId);
     Task<TranscriptionResponse> TranscribeAsync(IFormFile audioFile, string? language = null, CancellationToken cancellationToken = default);
     string? GetAudioFilePath(string audioId);
     void CleanupExpiredAudio(TimeSpan maxAge);
