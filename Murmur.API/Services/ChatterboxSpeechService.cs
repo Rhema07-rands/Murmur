@@ -1,7 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
-using EdgeTTS.DotNet;
 using Murmur.API.Models;
 
 namespace Murmur.API.Services;
@@ -14,7 +13,6 @@ public sealed class ChatterboxSpeechService : ISpeechService
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    // High quality Microsoft Neural voices accessible cloud-wide without API keys
     private static readonly IReadOnlyList<VoiceOption> DefaultNeuralVoices =
     [
         new("en-US-JennyNeural", "Jenny (US Neural)", "en-US", "United States", "cloud-neural", "Warm, natural US English female neural voice"),
@@ -63,7 +61,7 @@ public sealed class ChatterboxSpeechService : ISpeechService
         }
         catch (Exception)
         {
-            // Local worker not running - Cloud Neural is active!
+            // Cloud Neural is primary
         }
 
         return new WorkerHealthResponse(
@@ -93,7 +91,7 @@ public sealed class ChatterboxSpeechService : ISpeechService
         }
         catch (Exception)
         {
-            // Fall back to cloud neural voices
+            // Default to cloud voices
         }
 
         return result;
@@ -108,7 +106,7 @@ public sealed class ChatterboxSpeechService : ISpeechService
 
         var voiceId = string.IsNullOrWhiteSpace(request.VoiceId) ? "en-US-JennyNeural" : request.VoiceId;
 
-        // 1. If user chose a local chatterbox voice and worker is available, use it
+        // 1. If Chatterbox local voice is explicitly chosen and worker is reachable
         if (voiceId.StartsWith("chatterbox", StringComparison.OrdinalIgnoreCase) || voiceId == "default")
         {
             try
@@ -145,14 +143,13 @@ public sealed class ChatterboxSpeechService : ISpeechService
             }
         }
 
-        // 2. Generate using Cloud Neural Voices (EdgeTTS - 100% free, natural neural speech)
+        // 2. Generate using authenticated Cloud Neural TTS (with rolling Sec-MS-GEC v2 signature)
         try
         {
             var speedPercent = (int)Math.Round((request.Speed - 1.0) * 100);
             var rateStr = speedPercent >= 0 ? $"+{speedPercent}%" : $"{speedPercent}%";
 
-            var communicate = new Communicate(request.Text, voice: voiceId, rate: rateStr);
-            await communicate.SaveAsync(outputPath);
+            await EdgeTtsClient.SynthesizeToFileAsync(request.Text, voiceId, rateStr, outputPath, cancellationToken);
 
             return new SpeechGenerateResponse(
                 AudioId: audioId,
