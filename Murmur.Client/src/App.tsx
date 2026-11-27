@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AudioPlayer } from './components/AudioPlayer';
 import { DocumentUploader } from './components/DocumentUploader';
 import { Header } from './components/Header';
@@ -55,8 +55,11 @@ export function App() {
   const [browserProgress, setBrowserProgress] = useState<{ current: number; total: number } | null>(null);
 
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isPlayingAi, setIsPlayingAi] = useState(false);
   const [generatedAudio, setGeneratedAudio] = useState<SpeechGenerateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const refreshWorker = useCallback(async () => {
     try {
@@ -67,7 +70,7 @@ export function App() {
         setAiVoices(voices);
       }
     } catch {
-      // Kept available with default neural list even if polling momentarily delays
+      // Retain defaults
     }
   }, []);
 
@@ -126,16 +129,21 @@ export function App() {
     );
   };
 
-  const handleGenerateAi = async () => {
+  const handlePlayAi = async () => {
     setError(null);
     if (!text.trim()) {
-      setError('Please enter text or load a document before generating AI speech.');
+      setError('Please enter text or load a document before playing speech.');
       return;
     }
 
     if (text.length > 50_000) {
       setError('Text exceeds the 50,000 character limit per request.');
       return;
+    }
+
+    if (globalAudioRef.current) {
+      globalAudioRef.current.pause();
+      globalAudioRef.current = null;
     }
 
     setIsGenerating(true);
@@ -148,12 +156,39 @@ export function App() {
         exaggeration,
         cfgWeight: 0.5,
       });
+
       setGeneratedAudio(result);
+
+      // Instantly start playback directly in the browser!
+      const audio = new Audio(result.audioUrl);
+      globalAudioRef.current = audio;
+      audio.playbackRate = speed;
+
+      audio.onplay = () => setIsPlayingAi(true);
+      audio.onended = () => {
+        setIsPlayingAi(false);
+        globalAudioRef.current = null;
+      };
+      audio.onerror = () => {
+        setIsPlayingAi(false);
+        globalAudioRef.current = null;
+      };
+
+      await audio.play();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI speech generation failed.');
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handleStopAi = () => {
+    if (globalAudioRef.current) {
+      globalAudioRef.current.pause();
+      globalAudioRef.current.currentTime = 0;
+      globalAudioRef.current = null;
+    }
+    setIsPlayingAi(false);
   };
 
   return (
@@ -181,6 +216,7 @@ export function App() {
             engine={engine}
             onEngineChange={(next) => {
               browserSpeechService.stop();
+              handleStopAi();
               setIsSpeaking(false);
               setIsPaused(false);
               setBrowserProgress(null);
@@ -208,6 +244,7 @@ export function App() {
             isSpeaking={isSpeaking}
             isPaused={isPaused}
             isGenerating={isGenerating}
+            isPlayingAi={isPlayingAi}
             browserProgress={browserProgress}
             onPlayBrowser={handlePlayBrowser}
             onPauseBrowser={() => browserSpeechService.pause()}
@@ -218,7 +255,8 @@ export function App() {
               setIsPaused(false);
               setBrowserProgress(null);
             }}
-            onGenerateAi={() => void handleGenerateAi()}
+            onPlayAi={() => void handlePlayAi()}
+            onStopAi={handleStopAi}
           />
 
           {error && <p className="error-banner">{error}</p>}

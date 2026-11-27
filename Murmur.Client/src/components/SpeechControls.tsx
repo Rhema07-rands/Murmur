@@ -5,12 +5,14 @@ interface SpeechControlsProps {
   isSpeaking: boolean;
   isPaused: boolean;
   isGenerating: boolean;
+  isPlayingAi: boolean;
   browserProgress: { current: number; total: number } | null;
   onPlayBrowser: () => void;
   onPauseBrowser: () => void;
   onResumeBrowser: () => void;
   onStopBrowser: () => void;
-  onGenerateAi: () => void;
+  onPlayAi: () => void;
+  onStopAi: () => void;
 }
 
 export function SpeechControls({
@@ -18,12 +20,14 @@ export function SpeechControls({
   isSpeaking,
   isPaused,
   isGenerating,
+  isPlayingAi,
   browserProgress,
   onPlayBrowser,
   onPauseBrowser,
   onResumeBrowser,
   onStopBrowser,
-  onGenerateAi,
+  onPlayAi,
+  onStopAi,
 }: SpeechControlsProps) {
   return (
     <section className="card controls-bar">
@@ -60,14 +64,24 @@ export function SpeechControls({
         </>
       ) : (
         <div className="button-row">
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={isGenerating}
-            onClick={onGenerateAi}
-          >
-            {isGenerating ? 'Generating AI Speech (MP3)...' : 'Generate AI Speech (MP3)'}
-          </button>
+          {!isPlayingAi ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={isGenerating}
+              onClick={onPlayAi}
+            >
+              {isGenerating ? 'Generating & Loading Audio...' : '▶ Play Speech'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={onStopAi}
+            >
+              ⏹ Stop
+            </button>
+          )}
         </div>
       )}
     </section>
