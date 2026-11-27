@@ -29,6 +29,7 @@ var workerBaseUrl = builder.Configuration["SpeechWorker:BaseUrl"] ?? "http://127
 
 builder.Services.AddSingleton<IDocumentExtractionService, DocumentExtractionService>();
 builder.Services.AddSingleton<IDocumentLibraryService, TiDbDocumentLibraryService>();
+builder.Services.AddSingleton<ILightNovelService, TiDbLightNovelService>();
 builder.Services.AddHttpClient<ISpeechService, ChatterboxSpeechService>(client =>
 {
     client.BaseAddress = new Uri(workerBaseUrl);

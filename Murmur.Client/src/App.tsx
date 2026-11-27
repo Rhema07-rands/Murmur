@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioPlayer } from './components/AudioPlayer';
 import { DocumentUploader } from './components/DocumentUploader';
 import { Header } from './components/Header';
+import { LightNovelReader } from './components/LightNovelReader';
 import { SavedLibrary } from './components/SavedLibrary';
 import { SpeechControls } from './components/SpeechControls';
 import { TextEditor } from './components/TextEditor';
@@ -121,6 +122,10 @@ export function App() {
   const [generatedExaggeration, setGeneratedExaggeration] = useState<number | null>(null);
   const [generationProgress, setGenerationProgress] = useState<SpeechJobStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Light Novel reading state
+  const [activeNovelId, setActiveNovelId] = useState<string | null>(null);
+  const [activeChapterIndex, setActiveChapterIndex] = useState<number | null>(null);
 
   const globalAudioRef = useRef<HTMLAudioElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -606,6 +611,21 @@ export function App() {
               setDocTitle(loadedTitle);
               setCursorPos(0);
               setError(null);
+            }}
+          />
+
+          <LightNovelReader
+            activeReadingNovelId={activeNovelId}
+            activeReadingChapterIndex={activeChapterIndex}
+            onReadChapter={(chapterContent, chapterTitle, novelId, chapterIndex) => {
+              setText(chapterContent);
+              setDocTitle(chapterTitle);
+              setActiveNovelId(novelId);
+              setActiveChapterIndex(chapterIndex);
+              setCursorPos(0);
+              setError(null);
+              // Scroll up to reader/controls
+              window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
           />
         </div>

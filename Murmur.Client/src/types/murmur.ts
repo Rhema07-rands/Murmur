@@ -95,3 +95,38 @@ export interface SavedDocumentSummary {
 export interface SavedDocumentDetail extends SavedDocumentSummary {
   content: string;
 }
+
+export interface NovelSummary {
+  id: string;
+  title: string;
+  author: string | null;
+  totalChapters: number;
+  totalCharacters: number;
+  lastReadChapter: number;
+  coverColor: string | null;
+  uploadedAtUtc: string;
+}
+
+export interface NovelChapterSummary {
+  chapterIndex: number;
+  title: string;
+  characterCount: number;
+}
+
+export interface NovelChapterDetail {
+  novelId: string;
+  chapterIndex: number;
+  title: string;
+  content: string;
+  characterCount: number;
+  totalChapters: number;
+}
+
+export interface NovelUploadResponse {
+  id: string;
+  title: string;
+  author: string | null;
+  totalChapters: number;
+  totalCharacters: number;
+  message: string;
+}

@@ -1,5 +1,9 @@
 import type {
   DocumentUploadResponse,
+  NovelChapterDetail,
+  NovelChapterSummary,
+  NovelSummary,
+  NovelUploadResponse,
   SaveDocumentRequest,
   SavedDocumentDetail,
   SavedDocumentSummary,
@@ -257,6 +261,71 @@ export const apiService = {
 
   async deleteSavedDocument(id: string): Promise<void> {
     const response = await fetch(`${API_BASE}/api/library/documents/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok && response.status !== 204) {
+      throw new Error(await parseError(response));
+    }
+  },
+
+  async uploadNovel(file: File): Promise<NovelUploadResponse> {
+    if (!API_BASE && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      throw new Error('API connection not configured.');
+    }
+    const form = new FormData();
+    form.append('file', file);
+    const response = await fetch(`${API_BASE}/api/novels/upload`, {
+      method: 'POST',
+      body: form,
+    });
+    if (!response.ok) {
+      throw new Error(await parseError(response));
+    }
+    return response.json() as Promise<NovelUploadResponse>;
+  },
+
+  async listNovels(): Promise<NovelSummary[]> {
+    const response = await fetch(`${API_BASE}/api/novels`);
+    if (!response.ok) {
+      throw new Error(await parseError(response));
+    }
+    return response.json() as Promise<NovelSummary[]>;
+  },
+
+  async getNovel(novelId: string): Promise<NovelSummary> {
+    const response = await fetch(`${API_BASE}/api/novels/${encodeURIComponent(novelId)}`);
+    if (!response.ok) {
+      throw new Error(await parseError(response));
+    }
+    return response.json() as Promise<NovelSummary>;
+  },
+
+  async listNovelChapters(novelId: string): Promise<NovelChapterSummary[]> {
+    const response = await fetch(`${API_BASE}/api/novels/${encodeURIComponent(novelId)}/chapters`);
+    if (!response.ok) {
+      throw new Error(await parseError(response));
+    }
+    return response.json() as Promise<NovelChapterSummary[]>;
+  },
+
+  async getNovelChapter(novelId: string, chapterIndex: number): Promise<NovelChapterDetail> {
+    const response = await fetch(`${API_BASE}/api/novels/${encodeURIComponent(novelId)}/chapters/${chapterIndex}`);
+    if (!response.ok) {
+      throw new Error(await parseError(response));
+    }
+    return response.json() as Promise<NovelChapterDetail>;
+  },
+
+  async updateNovelProgress(novelId: string, chapterIndex: number): Promise<void> {
+    await fetch(`${API_BASE}/api/novels/${encodeURIComponent(novelId)}/progress`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapterIndex }),
+    });
+  },
+
+  async deleteNovel(novelId: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/api/novels/${encodeURIComponent(novelId)}`, {
       method: 'DELETE',
     });
     if (!response.ok && response.status !== 204) {
