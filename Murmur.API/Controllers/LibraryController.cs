@@ -9,10 +9,18 @@ namespace Murmur.API.Controllers;
 public sealed class LibraryController : ControllerBase
 {
     private readonly IDocumentLibraryService _libraryService;
+    private readonly IAuthService _authService;
 
-    public LibraryController(IDocumentLibraryService libraryService)
+    public LibraryController(IDocumentLibraryService libraryService, IAuthService authService)
     {
         _libraryService = libraryService;
+        _authService = authService;
+    }
+
+    private string? GetCurrentUserId()
+    {
+        var authHeader = Request.Headers.Authorization.ToString();
+        return _authService.ValidateTokenAndGetUserId(authHeader);
     }
 
     [HttpGet("documents")]
@@ -20,21 +28,24 @@ public sealed class LibraryController : ControllerBase
         [FromQuery] string? folder,
         CancellationToken cancellationToken)
     {
-        var docs = await _libraryService.ListDocumentsAsync(folder, cancellationToken);
+        var userId = GetCurrentUserId();
+        var docs = await _libraryService.ListDocumentsAsync(folder, userId, cancellationToken);
         return Ok(docs);
     }
 
     [HttpGet("folders")]
     public async Task<ActionResult<IReadOnlyList<string>>> ListFolders(CancellationToken cancellationToken)
     {
-        var folders = await _libraryService.ListFoldersAsync(cancellationToken);
+        var userId = GetCurrentUserId();
+        var folders = await _libraryService.ListFoldersAsync(userId, cancellationToken);
         return Ok(folders);
     }
 
     [HttpGet("documents/{id}")]
     public async Task<ActionResult<SavedDocumentDetail>> GetDocument(string id, CancellationToken cancellationToken)
     {
-        var doc = await _libraryService.GetDocumentAsync(id, cancellationToken);
+        var userId = GetCurrentUserId();
+        var doc = await _libraryService.GetDocumentAsync(id, userId, cancellationToken);
         if (doc is null)
         {
             return NotFound(new { error = "Saved document not found." });
@@ -52,14 +63,16 @@ public sealed class LibraryController : ControllerBase
             return BadRequest(new { error = "Cannot save an empty document." });
         }
 
-        var saved = await _libraryService.SaveDocumentAsync(request, cancellationToken);
+        var userId = GetCurrentUserId();
+        var saved = await _libraryService.SaveDocumentAsync(request, userId, cancellationToken);
         return Ok(saved);
     }
 
     [HttpDelete("documents/{id}")]
     public async Task<IActionResult> DeleteDocument(string id, CancellationToken cancellationToken)
     {
-        var deleted = await _libraryService.DeleteDocumentAsync(id, cancellationToken);
+        var userId = GetCurrentUserId();
+        var deleted = await _libraryService.DeleteDocumentAsync(id, userId, cancellationToken);
         if (!deleted)
         {
             return NotFound(new { error = "Saved document not found." });

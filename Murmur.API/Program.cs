@@ -28,6 +28,7 @@ builder.Services.AddCors(options =>
 var workerBaseUrl = builder.Configuration["SpeechWorker:BaseUrl"] ?? "http://127.0.0.1:8000";
 
 builder.Services.AddSingleton<IDocumentExtractionService, DocumentExtractionService>();
+builder.Services.AddSingleton<IAuthService, TiDbAuthService>();
 builder.Services.AddSingleton<IDocumentLibraryService, TiDbDocumentLibraryService>();
 builder.Services.AddSingleton<ILightNovelService, TiDbLightNovelService>();
 builder.Services.AddHttpClient<ISpeechService, ChatterboxSpeechService>(client =>

@@ -72,6 +72,7 @@ public sealed class TiDbLightNovelService : ILightNovelService
             const string createNovelsSql = """
                 CREATE TABLE IF NOT EXISTS murmur_novels (
                     id VARCHAR(64) PRIMARY KEY,
+                    user_id VARCHAR(64) NULL,
                     title VARCHAR(500) NOT NULL,
                     author VARCHAR(255),
                     total_chapters INT NOT NULL DEFAULT 0,
@@ -79,6 +80,7 @@ public sealed class TiDbLightNovelService : ILightNovelService
                     last_read_chapter INT NOT NULL DEFAULT 0,
                     cover_color VARCHAR(20),
                     uploaded_at_utc DATETIME NOT NULL,
+                    INDEX idx_user (user_id),
                     INDEX idx_uploaded (uploaded_at_utc)
                 );
                 """;
@@ -113,6 +115,7 @@ public sealed class TiDbLightNovelService : ILightNovelService
         string title,
         string? author,
         IReadOnlyList<DocumentSection> chapters,
+        string? userId = null,
         CancellationToken cancellationToken = default)
     {
         await using var conn = await OpenConnectionAsync(cancellationToken);
@@ -124,13 +127,14 @@ public sealed class TiDbLightNovelService : ILightNovelService
 
         const string insertNovelSql = """
             INSERT INTO murmur_novels
-                (id, title, author, total_chapters, total_characters, last_read_chapter, cover_color, uploaded_at_utc)
+                (id, user_id, title, author, total_chapters, total_characters, last_read_chapter, cover_color, uploaded_at_utc)
             VALUES
-                (@id, @title, @author, @totalChapters, @totalChars, 0, @color, @uploaded);
+                (@id, @userId, @title, @author, @totalChapters, @totalChars, 0, @color, @uploaded);
             """;
 
         await using var novelCmd = new MySqlCommand(insertNovelSql, conn);
         novelCmd.Parameters.AddWithValue("@id", novelId);
+        novelCmd.Parameters.AddWithValue("@userId", (object?)userId ?? DBNull.Value);
         novelCmd.Parameters.AddWithValue("@title", title.Length > 500 ? title[..500] : title);
         novelCmd.Parameters.AddWithValue("@author", (object?)author ?? DBNull.Value);
         novelCmd.Parameters.AddWithValue("@totalChapters", chapters.Count);
@@ -173,17 +177,27 @@ public sealed class TiDbLightNovelService : ILightNovelService
         );
     }
 
-    public async Task<IReadOnlyList<NovelSummary>> ListNovelsAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<NovelSummary>> ListNovelsAsync(string? userId = null, CancellationToken cancellationToken = default)
     {
         await using var conn = await OpenConnectionAsync(cancellationToken);
 
-        const string sql = """
-            SELECT id, title, author, total_chapters, total_characters, last_read_chapter, cover_color, uploaded_at_utc
-            FROM murmur_novels
-            ORDER BY uploaded_at_utc DESC;
-            """;
+        var hasUser = !string.IsNullOrWhiteSpace(userId);
+        var sql = hasUser
+            ? """
+              SELECT id, title, author, total_chapters, total_characters, last_read_chapter, cover_color, uploaded_at_utc
+              FROM murmur_novels
+              WHERE (user_id = @userId OR user_id IS NULL)
+              ORDER BY uploaded_at_utc DESC;
+              """
+            : """
+              SELECT id, title, author, total_chapters, total_characters, last_read_chapter, cover_color, uploaded_at_utc
+              FROM murmur_novels
+              ORDER BY uploaded_at_utc DESC;
+              """;
 
         await using var cmd = new MySqlCommand(sql, conn);
+        if (hasUser) cmd.Parameters.AddWithValue("@userId", userId);
+
         var results = new List<NovelSummary>();
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
@@ -202,19 +216,19 @@ public sealed class TiDbLightNovelService : ILightNovelService
         return results;
     }
 
-    public async Task<NovelSummary?> GetNovelAsync(string novelId, CancellationToken cancellationToken = default)
+    public async Task<NovelSummary?> GetNovelAsync(string novelId, string? userId = null, CancellationToken cancellationToken = default)
     {
         await using var conn = await OpenConnectionAsync(cancellationToken);
 
-        const string sql = """
-            SELECT id, title, author, total_chapters, total_characters, last_read_chapter, cover_color, uploaded_at_utc
-            FROM murmur_novels
-            WHERE id = @id
-            LIMIT 1;
-            """;
+        var hasUser = !string.IsNullOrWhiteSpace(userId);
+        var sql = hasUser
+            ? "SELECT id, title, author, total_chapters, total_characters, last_read_chapter, cover_color, uploaded_at_utc FROM murmur_novels WHERE id = @id AND (user_id = @userId OR user_id IS NULL) LIMIT 1;"
+            : "SELECT id, title, author, total_chapters, total_characters, last_read_chapter, cover_color, uploaded_at_utc FROM murmur_novels WHERE id = @id LIMIT 1;";
 
         await using var cmd = new MySqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("@id", novelId);
+        if (hasUser) cmd.Parameters.AddWithValue("@userId", userId);
+
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
 
         if (!await reader.ReadAsync(cancellationToken)) return null;
@@ -308,16 +322,37 @@ public sealed class TiDbLightNovelService : ILightNovelService
         return await cmd.ExecuteNonQueryAsync(cancellationToken) > 0;
     }
 
-    public async Task<bool> DeleteNovelAsync(string novelId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteNovelAsync(string novelId, string? userId = null, CancellationToken cancellationToken = default)
     {
         await using var conn = await OpenConnectionAsync(cancellationToken);
+
+        var hasUser = !string.IsNullOrWhiteSpace(userId);
+
+        // Verify ownership if user is logged in
+        if (hasUser)
+        {
+            const string verifySql = "SELECT COUNT(1) FROM murmur_novels WHERE id = @id AND (user_id = @userId OR user_id IS NULL);";
+            await using var verifyCmd = new MySqlCommand(verifySql, conn);
+            verifyCmd.Parameters.AddWithValue("@id", novelId);
+            verifyCmd.Parameters.AddWithValue("@userId", userId);
+            if (Convert.ToInt64(await verifyCmd.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                return false;
+            }
+        }
 
         await using var chCmd = new MySqlCommand("DELETE FROM murmur_novel_chapters WHERE novel_id = @id;", conn);
         chCmd.Parameters.AddWithValue("@id", novelId);
         await chCmd.ExecuteNonQueryAsync(cancellationToken);
 
-        await using var nCmd = new MySqlCommand("DELETE FROM murmur_novels WHERE id = @id;", conn);
+        var deleteNovelSql = hasUser
+            ? "DELETE FROM murmur_novels WHERE id = @id AND (user_id = @userId OR user_id IS NULL);"
+            : "DELETE FROM murmur_novels WHERE id = @id;";
+
+        await using var nCmd = new MySqlCommand(deleteNovelSql, conn);
         nCmd.Parameters.AddWithValue("@id", novelId);
+        if (hasUser) nCmd.Parameters.AddWithValue("@userId", userId);
+
         return await nCmd.ExecuteNonQueryAsync(cancellationToken) > 0;
     }
 }

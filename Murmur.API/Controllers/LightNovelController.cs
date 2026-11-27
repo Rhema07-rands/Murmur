@@ -10,11 +10,22 @@ public sealed class LightNovelController : ControllerBase
 {
     private readonly ILightNovelService _novelService;
     private readonly IDocumentExtractionService _extractionService;
+    private readonly IAuthService _authService;
 
-    public LightNovelController(ILightNovelService novelService, IDocumentExtractionService extractionService)
+    public LightNovelController(
+        ILightNovelService novelService,
+        IDocumentExtractionService extractionService,
+        IAuthService authService)
     {
         _novelService = novelService;
         _extractionService = extractionService;
+        _authService = authService;
+    }
+
+    private string? GetCurrentUserId()
+    {
+        var authHeader = Request.Headers.Authorization.ToString();
+        return _authService.ValidateTokenAndGetUserId(authHeader);
     }
 
     [HttpPost("upload")]
@@ -43,10 +54,12 @@ public sealed class LightNovelController : ControllerBase
                 return BadRequest(new { error = "No chapters could be extracted from this EPUB file." });
             }
 
+            var userId = GetCurrentUserId();
             var result = await _novelService.UploadNovelAsync(
                 extracted.Title,
                 extracted.Author,
                 extracted.Sections,
+                userId,
                 cancellationToken);
 
             _extractionService.DeleteDocument(extracted.Id);
@@ -62,14 +75,16 @@ public sealed class LightNovelController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<NovelSummary>>> ListNovels(CancellationToken cancellationToken)
     {
-        var novels = await _novelService.ListNovelsAsync(cancellationToken);
+        var userId = GetCurrentUserId();
+        var novels = await _novelService.ListNovelsAsync(userId, cancellationToken);
         return Ok(novels);
     }
 
     [HttpGet("{novelId}")]
     public async Task<ActionResult<NovelSummary>> GetNovel(string novelId, CancellationToken cancellationToken)
     {
-        var novel = await _novelService.GetNovelAsync(novelId, cancellationToken);
+        var userId = GetCurrentUserId();
+        var novel = await _novelService.GetNovelAsync(novelId, userId, cancellationToken);
         if (novel is null)
         {
             return NotFound(new { error = "Novel not found." });
@@ -117,7 +132,8 @@ public sealed class LightNovelController : ControllerBase
     [HttpDelete("{novelId}")]
     public async Task<IActionResult> DeleteNovel(string novelId, CancellationToken cancellationToken)
     {
-        var deleted = await _novelService.DeleteNovelAsync(novelId, cancellationToken);
+        var userId = GetCurrentUserId();
+        var deleted = await _novelService.DeleteNovelAsync(novelId, userId, cancellationToken);
         if (!deleted)
         {
             return NotFound(new { error = "Novel not found." });

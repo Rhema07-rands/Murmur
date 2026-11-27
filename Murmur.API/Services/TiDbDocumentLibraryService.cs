@@ -71,6 +71,7 @@ public sealed class TiDbDocumentLibraryService : IDocumentLibraryService
             const string createTableSql = """
                 CREATE TABLE IF NOT EXISTS murmur_saved_documents (
                     id VARCHAR(64) PRIMARY KEY,
+                    user_id VARCHAR(64) NULL,
                     folder_name VARCHAR(120) NOT NULL DEFAULT 'General',
                     title VARCHAR(255) NOT NULL,
                     file_type VARCHAR(32) NOT NULL DEFAULT 'text',
@@ -79,6 +80,7 @@ public sealed class TiDbDocumentLibraryService : IDocumentLibraryService
                     created_at_utc DATETIME NOT NULL,
                     updated_at_utc DATETIME NOT NULL,
                     INDEX idx_folder (folder_name),
+                    INDEX idx_user (user_id),
                     INDEX idx_created (created_at_utc)
                 );
                 """;
@@ -96,29 +98,30 @@ public sealed class TiDbDocumentLibraryService : IDocumentLibraryService
 
     public async Task<IReadOnlyList<SavedDocumentSummary>> ListDocumentsAsync(
         string? folderName = null,
+        string? userId = null,
         CancellationToken cancellationToken = default)
     {
         await using var conn = await OpenConnectionAsync(cancellationToken);
 
         var hasFolder = !string.IsNullOrWhiteSpace(folderName) && !folderName.Equals("All", StringComparison.OrdinalIgnoreCase);
-        var sql = hasFolder
-            ? """
-              SELECT id, folder_name, title, file_type, character_count, created_at_utc, updated_at_utc
-              FROM murmur_saved_documents
-              WHERE folder_name = @folder
-              ORDER BY updated_at_utc DESC;
-              """
-            : """
-              SELECT id, folder_name, title, file_type, character_count, created_at_utc, updated_at_utc
-              FROM murmur_saved_documents
-              ORDER BY updated_at_utc DESC;
-              """;
+        var hasUser = !string.IsNullOrWhiteSpace(userId);
+
+        var conditions = new List<string>();
+        if (hasFolder) conditions.Add("folder_name = @folder");
+        if (hasUser) conditions.Add("(user_id = @userId OR user_id IS NULL)");
+
+        var whereClause = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
+
+        var sql = $"""
+            SELECT id, folder_name, title, file_type, character_count, created_at_utc, updated_at_utc
+            FROM murmur_saved_documents
+            {whereClause}
+            ORDER BY updated_at_utc DESC;
+            """;
 
         await using var cmd = new MySqlCommand(sql, conn);
-        if (hasFolder)
-        {
-            cmd.Parameters.AddWithValue("@folder", folderName!.Trim());
-        }
+        if (hasFolder) cmd.Parameters.AddWithValue("@folder", folderName!.Trim());
+        if (hasUser) cmd.Parameters.AddWithValue("@userId", userId);
 
         var results = new List<SavedDocumentSummary>();
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -138,17 +141,18 @@ public sealed class TiDbDocumentLibraryService : IDocumentLibraryService
         return results;
     }
 
-    public async Task<IReadOnlyList<string>> ListFoldersAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<string>> ListFoldersAsync(string? userId = null, CancellationToken cancellationToken = default)
     {
         await using var conn = await OpenConnectionAsync(cancellationToken);
 
-        const string sql = """
-            SELECT DISTINCT folder_name
-            FROM murmur_saved_documents
-            ORDER BY folder_name ASC;
-            """;
+        var hasUser = !string.IsNullOrWhiteSpace(userId);
+        var sql = hasUser
+            ? "SELECT DISTINCT folder_name FROM murmur_saved_documents WHERE (user_id = @userId OR user_id IS NULL) ORDER BY folder_name ASC;"
+            : "SELECT DISTINCT folder_name FROM murmur_saved_documents ORDER BY folder_name ASC;";
 
         await using var cmd = new MySqlCommand(sql, conn);
+        if (hasUser) cmd.Parameters.AddWithValue("@userId", userId);
+
         var folders = new List<string>();
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
@@ -161,19 +165,19 @@ public sealed class TiDbDocumentLibraryService : IDocumentLibraryService
 
     public async Task<SavedDocumentDetail?> GetDocumentAsync(
         string id,
+        string? userId = null,
         CancellationToken cancellationToken = default)
     {
         await using var conn = await OpenConnectionAsync(cancellationToken);
 
-        const string sql = """
-            SELECT id, folder_name, title, file_type, content, character_count, created_at_utc, updated_at_utc
-            FROM murmur_saved_documents
-            WHERE id = @id
-            LIMIT 1;
-            """;
+        var hasUser = !string.IsNullOrWhiteSpace(userId);
+        var sql = hasUser
+            ? "SELECT id, folder_name, title, file_type, content, character_count, created_at_utc, updated_at_utc FROM murmur_saved_documents WHERE id = @id AND (user_id = @userId OR user_id IS NULL) LIMIT 1;"
+            : "SELECT id, folder_name, title, file_type, content, character_count, created_at_utc, updated_at_utc FROM murmur_saved_documents WHERE id = @id LIMIT 1;";
 
         await using var cmd = new MySqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("@id", id);
+        if (hasUser) cmd.Parameters.AddWithValue("@userId", userId);
 
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -195,6 +199,7 @@ public sealed class TiDbDocumentLibraryService : IDocumentLibraryService
 
     public async Task<SavedDocumentSummary> SaveDocumentAsync(
         SaveDocumentRequest request,
+        string? userId = null,
         CancellationToken cancellationToken = default)
     {
         await using var conn = await OpenConnectionAsync(cancellationToken);
@@ -210,13 +215,14 @@ public sealed class TiDbDocumentLibraryService : IDocumentLibraryService
 
         const string sql = """
             INSERT INTO murmur_saved_documents
-                (id, folder_name, title, file_type, content, character_count, created_at_utc, updated_at_utc)
+                (id, user_id, folder_name, title, file_type, content, character_count, created_at_utc, updated_at_utc)
             VALUES
-                (@id, @folder, @title, @fileType, @content, @charCount, @created, @updated);
+                (@id, @userId, @folder, @title, @fileType, @content, @charCount, @created, @updated);
             """;
 
         await using var cmd = new MySqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("@id", id);
+        cmd.Parameters.AddWithValue("@userId", (object?)userId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@folder", folder);
         cmd.Parameters.AddWithValue("@title", title);
         cmd.Parameters.AddWithValue("@fileType", fileType);
@@ -240,13 +246,19 @@ public sealed class TiDbDocumentLibraryService : IDocumentLibraryService
 
     public async Task<bool> DeleteDocumentAsync(
         string id,
+        string? userId = null,
         CancellationToken cancellationToken = default)
     {
         await using var conn = await OpenConnectionAsync(cancellationToken);
 
-        const string sql = "DELETE FROM murmur_saved_documents WHERE id = @id;";
+        var hasUser = !string.IsNullOrWhiteSpace(userId);
+        var sql = hasUser
+            ? "DELETE FROM murmur_saved_documents WHERE id = @id AND (user_id = @userId OR user_id IS NULL);"
+            : "DELETE FROM murmur_saved_documents WHERE id = @id;";
+
         await using var cmd = new MySqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("@id", id);
+        if (hasUser) cmd.Parameters.AddWithValue("@userId", userId);
 
         var affected = await cmd.ExecuteNonQueryAsync(cancellationToken);
         return affected > 0;

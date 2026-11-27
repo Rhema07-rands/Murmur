@@ -1,4 +1,5 @@
 import type {
+  AuthResponse,
   DocumentUploadResponse,
   NovelChapterDetail,
   NovelChapterSummary,
@@ -11,11 +12,21 @@ import type {
   SpeechGenerateResponse,
   SpeechJobStatus,
   TranscriptionResponse,
+  UserProfile,
   VoiceOption,
   WorkerHealthResponse,
 } from '../types/murmur';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+
+function getAuthHeader(): Record<string, string> {
+  try {
+    const token = localStorage.getItem('murmur_auth_token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+}
 
 async function parseError(response: Response): Promise<string> {
   try {
@@ -224,7 +235,9 @@ export const apiService = {
 
   async listSavedDocuments(folder?: string): Promise<SavedDocumentSummary[]> {
     const query = folder && folder !== 'All' ? `?folder=${encodeURIComponent(folder)}` : '';
-    const response = await fetch(`${API_BASE}/api/library/documents${query}`);
+    const response = await fetch(`${API_BASE}/api/library/documents${query}`, {
+      headers: { ...getAuthHeader() },
+    });
     if (!response.ok) {
       throw new Error(await parseError(response));
     }
@@ -232,7 +245,9 @@ export const apiService = {
   },
 
   async listFolders(): Promise<string[]> {
-    const response = await fetch(`${API_BASE}/api/library/folders`);
+    const response = await fetch(`${API_BASE}/api/library/folders`, {
+      headers: { ...getAuthHeader() },
+    });
     if (!response.ok) {
       throw new Error(await parseError(response));
     }
@@ -240,7 +255,9 @@ export const apiService = {
   },
 
   async getSavedDocument(id: string): Promise<SavedDocumentDetail> {
-    const response = await fetch(`${API_BASE}/api/library/documents/${encodeURIComponent(id)}`);
+    const response = await fetch(`${API_BASE}/api/library/documents/${encodeURIComponent(id)}`, {
+      headers: { ...getAuthHeader() },
+    });
     if (!response.ok) {
       throw new Error(await parseError(response));
     }
@@ -250,7 +267,7 @@ export const apiService = {
   async saveDocumentToLibrary(request: SaveDocumentRequest): Promise<SavedDocumentSummary> {
     const response = await fetch(`${API_BASE}/api/library/documents`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify(request),
     });
     if (!response.ok) {
@@ -262,6 +279,7 @@ export const apiService = {
   async deleteSavedDocument(id: string): Promise<void> {
     const response = await fetch(`${API_BASE}/api/library/documents/${encodeURIComponent(id)}`, {
       method: 'DELETE',
+      headers: { ...getAuthHeader() },
     });
     if (!response.ok && response.status !== 204) {
       throw new Error(await parseError(response));
@@ -276,6 +294,7 @@ export const apiService = {
     form.append('file', file);
     const response = await fetch(`${API_BASE}/api/novels/upload`, {
       method: 'POST',
+      headers: { ...getAuthHeader() },
       body: form,
     });
     if (!response.ok) {
@@ -285,7 +304,9 @@ export const apiService = {
   },
 
   async listNovels(): Promise<NovelSummary[]> {
-    const response = await fetch(`${API_BASE}/api/novels`);
+    const response = await fetch(`${API_BASE}/api/novels`, {
+      headers: { ...getAuthHeader() },
+    });
     if (!response.ok) {
       throw new Error(await parseError(response));
     }
@@ -293,7 +314,9 @@ export const apiService = {
   },
 
   async getNovel(novelId: string): Promise<NovelSummary> {
-    const response = await fetch(`${API_BASE}/api/novels/${encodeURIComponent(novelId)}`);
+    const response = await fetch(`${API_BASE}/api/novels/${encodeURIComponent(novelId)}`, {
+      headers: { ...getAuthHeader() },
+    });
     if (!response.ok) {
       throw new Error(await parseError(response));
     }
@@ -301,7 +324,9 @@ export const apiService = {
   },
 
   async listNovelChapters(novelId: string): Promise<NovelChapterSummary[]> {
-    const response = await fetch(`${API_BASE}/api/novels/${encodeURIComponent(novelId)}/chapters`);
+    const response = await fetch(`${API_BASE}/api/novels/${encodeURIComponent(novelId)}/chapters`, {
+      headers: { ...getAuthHeader() },
+    });
     if (!response.ok) {
       throw new Error(await parseError(response));
     }
@@ -309,7 +334,9 @@ export const apiService = {
   },
 
   async getNovelChapter(novelId: string, chapterIndex: number): Promise<NovelChapterDetail> {
-    const response = await fetch(`${API_BASE}/api/novels/${encodeURIComponent(novelId)}/chapters/${chapterIndex}`);
+    const response = await fetch(`${API_BASE}/api/novels/${encodeURIComponent(novelId)}/chapters/${chapterIndex}`, {
+      headers: { ...getAuthHeader() },
+    });
     if (!response.ok) {
       throw new Error(await parseError(response));
     }
@@ -319,7 +346,7 @@ export const apiService = {
   async updateNovelProgress(novelId: string, chapterIndex: number): Promise<void> {
     await fetch(`${API_BASE}/api/novels/${encodeURIComponent(novelId)}/progress`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify({ chapterIndex }),
     });
   },
@@ -327,9 +354,50 @@ export const apiService = {
   async deleteNovel(novelId: string): Promise<void> {
     const response = await fetch(`${API_BASE}/api/novels/${encodeURIComponent(novelId)}`, {
       method: 'DELETE',
+      headers: { ...getAuthHeader() },
     });
     if (!response.ok && response.status !== 204) {
       throw new Error(await parseError(response));
+    }
+  },
+
+  // ---- Auth APIs ----
+  async register(username: string, password: string): Promise<AuthResponse> {
+    const response = await fetch(`${API_BASE}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!response.ok) {
+      throw new Error(await parseError(response));
+    }
+    return response.json() as Promise<AuthResponse>;
+  },
+
+  async login(username: string, password: string): Promise<AuthResponse> {
+    const response = await fetch(`${API_BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!response.ok) {
+      throw new Error(await parseError(response));
+    }
+    return response.json() as Promise<AuthResponse>;
+  },
+
+  async getMe(): Promise<UserProfile | null> {
+    const auth = getAuthHeader();
+    if (!auth.Authorization) return null;
+
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/me`, {
+        headers: { ...auth },
+      });
+      if (!response.ok) return null;
+      return response.json() as Promise<UserProfile>;
+    } catch {
+      return null;
     }
   },
 };

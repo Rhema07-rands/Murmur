@@ -130,3 +130,15 @@ export interface NovelUploadResponse {
   totalCharacters: number;
   message: string;
 }
+
+export interface AuthResponse {
+  token: string;
+  userId: string;
+  username: string;
+}
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  createdAtUtc: string;
+}

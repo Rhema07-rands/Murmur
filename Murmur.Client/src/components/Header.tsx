@@ -1,12 +1,21 @@
-import type { WorkerHealthResponse } from '../types/murmur';
-import { LipsLogo } from './Icons';
+import type { UserProfile, WorkerHealthResponse } from '../types/murmur';
+import { LipsLogo, LogOutIcon, UserIcon } from './Icons';
 
 interface HeaderProps {
   workerHealth: WorkerHealthResponse | null;
   onRefreshHealth: () => void;
+  currentUser: UserProfile | null;
+  onOpenAuth: () => void;
+  onLogout: () => void;
 }
 
-export function Header({ workerHealth, onRefreshHealth }: HeaderProps) {
+export function Header({
+  workerHealth,
+  onRefreshHealth,
+  currentUser,
+  onOpenAuth,
+  onLogout,
+}: HeaderProps) {
   const isOnline = workerHealth?.available ?? false;
 
   return (
@@ -21,7 +30,30 @@ export function Header({ workerHealth, onRefreshHealth }: HeaderProps) {
         </div>
       </div>
 
-      <div className="status-group">
+      <div className="header-actions-group">
+        {currentUser ? (
+          <div className="user-badge-container">
+            <span className="user-greeting">
+              <UserIcon size={14} />
+              <strong>{currentUser.username}</strong>
+            </span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={onLogout}
+              title="Sign out of this device"
+            >
+              <LogOutIcon size={13} />
+              <span>Sign Out</span>
+            </button>
+          </div>
+        ) : (
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onOpenAuth}>
+            <UserIcon size={14} />
+            <span>Sign In / Sign Up</span>
+          </button>
+        )}
+
         <button
           type="button"
           className={`status-pill ${isOnline ? 'online' : 'offline'}`}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioPlayer } from './components/AudioPlayer';
+import { AuthModal } from './components/AuthModal';
 import { DocumentUploader } from './components/DocumentUploader';
 import { Header } from './components/Header';
 import { LightNovelReader } from './components/LightNovelReader';
@@ -126,6 +127,23 @@ export function App() {
   // Light Novel reading state
   const [activeNovelId, setActiveNovelId] = useState<string | null>(null);
   const [activeChapterIndex, setActiveChapterIndex] = useState<number | null>(null);
+
+  // User Auth State
+  const [currentUser, setCurrentUser] = useState<import('./types/murmur').UserProfile | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
+  useEffect(() => {
+    void apiService.getMe().then((user) => {
+      if (user) setCurrentUser(user);
+    });
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('murmur_auth_token');
+    localStorage.removeItem('murmur_user_id');
+    localStorage.removeItem('murmur_username');
+    setCurrentUser(null);
+  };
 
   const globalAudioRef = useRef<HTMLAudioElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -584,7 +602,21 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <Header workerHealth={workerHealth} onRefreshHealth={() => void refreshWorker()} />
+      <Header
+        workerHealth={workerHealth}
+        onRefreshHealth={() => void refreshWorker()}
+        currentUser={currentUser}
+        onOpenAuth={() => setIsAuthModalOpen(true)}
+        onLogout={handleLogout}
+      />
+
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={(user) => {
+          setCurrentUser(user);
+        }}
+      />
 
       <main className="main-grid">
         <div className="primary-col">
