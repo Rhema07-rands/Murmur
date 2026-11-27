@@ -349,7 +349,8 @@ public static class EdgeTtsClient
         await ws.SendAsync(Encoding.UTF8.GetBytes(configMsg), WebSocketMessageType.Text, true, cancellationToken);
 
         using var fileStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        var chunks = ChunkText(text, 5000);
+        // Granular chunks (~1,200 chars) provide smooth, frequent progress updates and quick generation
+        var chunks = ChunkText(text, 1200);
         var totalChars = text.Length;
         var processedChars = 0;
         var buffer = new byte[8192];

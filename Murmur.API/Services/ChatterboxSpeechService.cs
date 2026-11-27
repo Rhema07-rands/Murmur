@@ -215,9 +215,9 @@ public sealed class ChatterboxSpeechService : ISpeechService
         var audioId = Guid.NewGuid().ToString("N");
         var outputPath = Path.Combine(_audioStoragePath, $"{audioId}.mp3");
         var totalChars = request.Text.Length;
-        var estChunks = Math.Max(1, (int)Math.Ceiling(totalChars / 5000.0));
-        // Estimate ~3.5 seconds per chunk
-        var initialEta = Math.Max(2, estChunks * 3);
+        var estChunks = Math.Max(1, (int)Math.Ceiling(totalChars / 1200.0));
+        // Estimate ~1.2 seconds per 1200-char chunk
+        var initialEta = Math.Max(2, (int)Math.Ceiling(estChunks * 1.2));
 
         var state = new SpeechJobState
         {

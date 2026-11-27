@@ -297,7 +297,7 @@ export function App() {
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
-    const estChunks = Math.max(1, Math.ceil(textToSpeak.length / 5000));
+    const estChunks = Math.max(1, Math.ceil(textToSpeak.length / 1200));
     setGenerationProgress({
       jobId: '',
       status: 'processing',
@@ -306,7 +306,7 @@ export function App() {
       totalChunks: estChunks,
       processedCharacters: 0,
       totalCharacters: textToSpeak.length,
-      estimatedSecondsRemaining: Math.max(2, estChunks * 3),
+      estimatedSecondsRemaining: Math.max(2, Math.ceil(estChunks * 1.2)),
     });
 
     try {
