@@ -8,11 +8,11 @@ RUN dotnet restore "Murmur.API.csproj"
 COPY . .
 RUN dotnet publish "Murmur.API.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
-# Runtime stage
+# Runtime stage (.NET 8/9/10 default port standard)
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 EXPOSE 8080
-ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_HTTP_PORTS=8080
 
 COPY --from=build /app/publish .
 ENTRYPOINT ["dotnet", "Murmur.API.dll"]
