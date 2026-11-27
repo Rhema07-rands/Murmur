@@ -106,8 +106,11 @@ public sealed class ChatterboxSpeechService : ISpeechService
 
         var voiceId = string.IsNullOrWhiteSpace(request.VoiceId) ? "en-US-JennyNeural" : request.VoiceId;
 
-        // 1. If Chatterbox local voice is explicitly chosen and worker is reachable
-        if (voiceId.StartsWith("chatterbox", StringComparison.OrdinalIgnoreCase) || voiceId == "default")
+        // 1. If user chose a local Chatterbox voice (built-in "default" or any custom cloned voice in voices/), use the local worker
+        var isCloudNeuralVoice = DefaultNeuralVoices.Any(v =>
+            v.Id.Equals(voiceId, StringComparison.OrdinalIgnoreCase));
+
+        if (!isCloudNeuralVoice)
         {
             try
             {
