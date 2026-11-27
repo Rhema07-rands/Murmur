@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Murmur.API.Models;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
@@ -22,25 +24,33 @@ public sealed partial class DocumentExtractionService : IDocumentExtractionServi
     public async Task<ExtractedDocument> ExtractAsync(IFormFile file, CancellationToken cancellationToken = default)
     {
         var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (extension is not ".pdf" and not ".epub")
+        if (extension is not ".pdf" and not ".epub" and not ".docx")
         {
-            throw new InvalidOperationException("Unsupported file type. Only .pdf and .epub files are supported.");
+            throw new InvalidOperationException("Unsupported file type. Only .pdf, .epub, and .docx files are supported.");
         }
 
         using var memoryStream = new MemoryStream();
         await file.CopyToAsync(memoryStream, cancellationToken);
         memoryStream.Position = 0;
 
-        var extracted = extension == ".pdf"
-            ? ExtractPdf(file.FileName, memoryStream)
-            : ExtractEpub(file.FileName, memoryStream);
+        var extracted = extension switch
+        {
+            ".pdf" => ExtractPdf(file.FileName, memoryStream),
+            ".epub" => ExtractEpub(file.FileName, memoryStream),
+            ".docx" => ExtractDocx(file.FileName, memoryStream),
+            _ => throw new InvalidOperationException("Unsupported file format.")
+        };
 
         if (extracted.TotalCharacters == 0)
         {
             throw new InvalidOperationException(
-                extension == ".pdf"
-                    ? "No extractable text was found in this PDF. It may be a scanned image-only PDF."
-                    : "No readable text was found in this EPUB file."
+                extension switch
+                {
+                    ".pdf" => "No extractable text was found in this PDF. It may be a scanned image-only PDF.",
+                    ".epub" => "No readable text was found in this EPUB file.",
+                    ".docx" => "No readable text was found in this Word (.docx) file.",
+                    _ => "No readable text found."
+                }
             );
         }
 
@@ -190,6 +200,91 @@ public sealed partial class DocumentExtractionService : IDocumentExtractionServi
         {
             _logger.LogWarning(ex, "Failed to parse EPUB {FileName}", fileName);
             throw new InvalidOperationException("The uploaded EPUB file appears to be corrupted or unreadable.", ex);
+        }
+    }
+
+    private ExtractedDocument ExtractDocx(string fileName, Stream stream)
+    {
+        try
+        {
+            using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+            var docEntry = zip.GetEntry("word/document.xml")
+                ?? throw new InvalidOperationException("Invalid DOCX format: word/document.xml not found.");
+
+            using var entryStream = docEntry.Open();
+            var docXml = XDocument.Load(entryStream);
+            XNamespace w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+            var paragraphs = docXml.Descendants(w + "p")
+                .Select(p => string.Concat(p.Descendants(w + "t").Select(t => t.Value)).Trim())
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .ToList();
+
+            var sections = new List<DocumentSection>();
+            var fullTextBuilder = new StringBuilder();
+
+            const int maxSectionChars = 3000;
+            var currentSectionBuilder = new StringBuilder();
+            var sectionIndex = 1;
+
+            foreach (var para in paragraphs)
+            {
+                if (currentSectionBuilder.Length + para.Length > maxSectionChars && currentSectionBuilder.Length > 0)
+                {
+                    var secText = currentSectionBuilder.ToString().Trim();
+                    sections.Add(new DocumentSection(
+                        Index: sectionIndex,
+                        Title: $"Section {sectionIndex}",
+                        Content: secText,
+                        CharacterCount: secText.Length
+                    ));
+                    sectionIndex++;
+                    currentSectionBuilder.Clear();
+                }
+
+                if (currentSectionBuilder.Length > 0)
+                {
+                    currentSectionBuilder.AppendLine().AppendLine();
+                }
+                currentSectionBuilder.Append(para);
+
+                if (fullTextBuilder.Length > 0)
+                {
+                    fullTextBuilder.AppendLine().AppendLine();
+                }
+                fullTextBuilder.Append(para);
+            }
+
+            if (currentSectionBuilder.Length > 0)
+            {
+                var remainingText = currentSectionBuilder.ToString().Trim();
+                sections.Add(new DocumentSection(
+                    Index: sectionIndex,
+                    Title: $"Section {sectionIndex}",
+                    Content: remainingText,
+                    CharacterCount: remainingText.Length
+                ));
+            }
+
+            var fullText = fullTextBuilder.ToString();
+            var title = Path.GetFileNameWithoutExtension(fileName);
+
+            return new ExtractedDocument(
+                Id: Guid.NewGuid().ToString("N"),
+                FileName: fileName,
+                FileType: "docx",
+                Title: title,
+                Author: null,
+                FullText: fullText,
+                TotalCharacters: fullText.Length,
+                Sections: sections,
+                CreatedAtUtc: DateTime.UtcNow
+            );
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException)
+        {
+            _logger.LogWarning(ex, "Failed to parse DOCX {FileName}", fileName);
+            throw new InvalidOperationException("The uploaded Word (.docx) file appears to be corrupted or unreadable.", ex);
         }
     }
 

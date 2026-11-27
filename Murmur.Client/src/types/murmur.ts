@@ -46,7 +46,7 @@ export interface DocumentSection {
 export interface DocumentUploadResponse {
   id: string;
   fileName: string;
-  fileType: 'pdf' | 'epub';
+  fileType: 'pdf' | 'epub' | 'docx';
   title: string;
   author: string | null;
   totalCharacters: number;

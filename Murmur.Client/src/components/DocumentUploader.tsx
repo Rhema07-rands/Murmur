@@ -15,8 +15,8 @@ export function DocumentUploader({ onLoadText }: DocumentUploaderProps) {
 
   const handleFile = async (file: File) => {
     const lower = file.name.toLowerCase();
-    if (!lower.endsWith('.pdf') && !lower.endsWith('.epub')) {
-      setError('Unsupported file type. Please choose a .pdf or .epub file.');
+    if (!lower.endsWith('.pdf') && !lower.endsWith('.epub') && !lower.endsWith('.docx')) {
+      setError('Unsupported file type. Please choose a .pdf, .epub, or .docx file.');
       return;
     }
 
@@ -71,7 +71,7 @@ export function DocumentUploader({ onLoadText }: DocumentUploaderProps) {
   return (
     <section className="card">
       <div className="card-header">
-        <h2>Document Reader (.PDF &amp; .EPUB)</h2>
+        <h2>Document Reader (.PDF, .EPUB &amp; .DOCX)</h2>
         {doc && (
           <button type="button" className="btn btn-ghost" onClick={() => void handleRemoveDoc()}>
             Close Document
@@ -82,7 +82,7 @@ export function DocumentUploader({ onLoadText }: DocumentUploaderProps) {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pdf,.epub,application/pdf,application/epub+zip"
+        accept=".pdf,.epub,.docx,application/pdf,application/epub+zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         hidden
         onChange={(e) => {
           const file = e.target.files?.[0];
@@ -101,14 +101,14 @@ export function DocumentUploader({ onLoadText }: DocumentUploaderProps) {
             if (file) void handleFile(file);
           }}
         >
-          <p>Drag &amp; drop a <strong>.pdf</strong> or <strong>.epub</strong> file here, or</p>
+          <p>Drag &amp; drop a <strong>.pdf</strong>, <strong>.epub</strong>, or <strong>.docx</strong> file here, or</p>
           <button
             type="button"
             className="btn btn-primary"
             disabled={uploading}
             onClick={() => fileInputRef.current?.click()}
           >
-            {uploading ? 'Extracting text...' : 'Choose PDF or EPUB'}
+            {uploading ? 'Extracting text...' : 'Choose PDF, EPUB or DOCX'}
           </button>
           <span className="text-muted">Max file size: 50 MB</span>
         </div>
