@@ -1,4 +1,5 @@
 import type { SpeechEngine } from '../types/murmur';
+import { Forward10Icon, PauseIcon, PlayIcon, Rewind10Icon, StopIcon } from './Icons';
 
 interface SpeechControlsProps {
   engine: SpeechEngine;
@@ -68,15 +69,18 @@ export function SpeechControls({
           <div className="button-row">
             {!isSpeaking ? (
               <button type="button" className="btn btn-primary" onClick={onPlayBrowser}>
-                {startCursorPos > 0 ? '▶ Play from Cursor' : '▶ Play Speech'}
+                <PlayIcon />
+                <span>{startCursorPos > 0 ? 'Play from Cursor' : 'Play Speech'}</span>
               </button>
             ) : isPaused ? (
               <button type="button" className="btn btn-primary" onClick={onResumeBrowser}>
-                ▶ Resume
+                <PlayIcon />
+                <span>Resume</span>
               </button>
             ) : (
               <button type="button" className="btn btn-secondary" onClick={onPauseBrowser}>
-                ⏸ Pause
+                <PauseIcon />
+                <span>Pause</span>
               </button>
             )}
             <button
@@ -85,7 +89,8 @@ export function SpeechControls({
               disabled={!isSpeaking && !isPaused}
               onClick={onStopBrowser}
             >
-              ⏹ Stop
+              <StopIcon />
+              <span>Stop</span>
             </button>
           </div>
           {browserProgress && (
@@ -104,19 +109,24 @@ export function SpeechControls({
                 disabled={isGenerating}
                 onClick={onPlayAi}
               >
-                {isGenerating
-                  ? 'Generating Audio...'
-                  : startCursorPos > 0
-                    ? '▶ Play from Cursor'
-                    : '▶ Play Speech'}
+                <PlayIcon />
+                <span>
+                  {isGenerating
+                    ? 'Generating Audio...'
+                    : startCursorPos > 0
+                      ? 'Play from Cursor'
+                      : 'Play Speech'}
+                </span>
               </button>
             ) : isAiPaused ? (
               <button type="button" className="btn btn-primary" onClick={onResumeAi}>
-                ▶ Resume
+                <PlayIcon />
+                <span>Resume</span>
               </button>
             ) : (
               <button type="button" className="btn btn-secondary" onClick={onPauseAi}>
-                ⏸ Pause
+                <PauseIcon />
+                <span>Pause</span>
               </button>
             )}
 
@@ -128,7 +138,8 @@ export function SpeechControls({
                   onClick={() => onSkipAi(-10)}
                   title="Go back 10 seconds"
                 >
-                  ⏪ -10s
+                  <Rewind10Icon />
+                  <span>-10s</span>
                 </button>
                 <button
                   type="button"
@@ -136,14 +147,16 @@ export function SpeechControls({
                   onClick={() => onSkipAi(10)}
                   title="Skip ahead 10 seconds"
                 >
-                  ⏩ +10s
+                  <span>+10s</span>
+                  <Forward10Icon />
                 </button>
               </>
             )}
 
             {(isPlayingAi || isAiPaused) && (
               <button type="button" className="btn btn-danger" onClick={onStopAi}>
-                ⏹ Stop
+                <StopIcon />
+                <span>Stop</span>
               </button>
             )}
           </div>

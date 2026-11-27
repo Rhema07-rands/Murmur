@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { SpeechEngine, VoiceOption } from '../types/murmur';
+import { ChevronDownIcon } from './Icons';
 
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
 
@@ -149,7 +150,7 @@ export function VoiceSelector({
             aria-expanded={speedMenuOpen}
           >
             <span>{speed}x</span>
-            <span aria-hidden="true">{speedMenuOpen ? '▲' : '▼'}</span>
+            <ChevronDownIcon rotated={speedMenuOpen} />
           </button>
 
           {speedMenuOpen && (

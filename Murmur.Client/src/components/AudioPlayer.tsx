@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SpeechGenerateResponse } from '../types/murmur';
+import { DownloadIcon, Forward10Icon, PauseIcon, PlayIcon, Rewind10Icon, StopIcon } from './Icons';
 
 interface AudioPlayerProps {
   generated: SpeechGenerateResponse | null;
@@ -76,7 +77,8 @@ export function AudioPlayer({ generated, audioRefShared }: AudioPlayerProps) {
           href={generated.downloadUrl}
           download={`murmur-${generated.audioId.slice(0, 8)}.mp3`}
         >
-          Download MP3
+          <DownloadIcon />
+          <span>Download MP3</span>
         </a>
       </div>
 
@@ -97,16 +99,20 @@ export function AudioPlayer({ generated, audioRefShared }: AudioPlayerProps) {
 
       <div className="player-controls">
         <button type="button" className="btn btn-secondary" onClick={() => void togglePlay()}>
-          {playing ? '⏸ Pause' : '▶ Play'}
+          {playing ? <PauseIcon /> : <PlayIcon />}
+          <span>{playing ? 'Pause' : 'Play'}</span>
         </button>
         <button type="button" className="btn btn-secondary" onClick={() => skipSeconds(-10)} title="Go back 10 seconds">
-          ⏪ -10s
+          <Rewind10Icon />
+          <span>-10s</span>
         </button>
         <button type="button" className="btn btn-secondary" onClick={() => skipSeconds(10)} title="Skip forward 10 seconds">
-          ⏩ +10s
+          <span>+10s</span>
+          <Forward10Icon />
         </button>
         <button type="button" className="btn btn-ghost" onClick={stopAudio}>
-          ⏹ Stop
+          <StopIcon />
+          <span>Stop</span>
         </button>
 
         <input
