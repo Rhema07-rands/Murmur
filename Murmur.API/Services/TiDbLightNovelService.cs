@@ -88,6 +88,30 @@ public sealed class TiDbLightNovelService : ILightNovelService
             await using var novelsCmd = new MySqlCommand(createNovelsSql, conn);
             await novelsCmd.ExecuteNonQueryAsync(cancellationToken);
 
+            // Migrate existing murmur_novels table if it was created before user_id existed
+            const string checkColSql = """
+                SELECT COUNT(1)
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'murmur_novels' AND COLUMN_NAME = 'user_id';
+                """;
+            await using var checkColCmd = new MySqlCommand(checkColSql, conn);
+            checkColCmd.Parameters.AddWithValue("@db", _targetDatabase);
+            var hasUserCol = Convert.ToInt64(await checkColCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!hasUserCol)
+            {
+                await using var addColCmd = new MySqlCommand(
+                    "ALTER TABLE murmur_novels ADD COLUMN user_id VARCHAR(64) NULL;", conn);
+                await addColCmd.ExecuteNonQueryAsync(cancellationToken);
+
+                try
+                {
+                    await using var addIdxCmd = new MySqlCommand(
+                        "CREATE INDEX idx_user ON murmur_novels (user_id);", conn);
+                    await addIdxCmd.ExecuteNonQueryAsync(cancellationToken);
+                }
+                catch { /* Index may already exist */ }
+            }
+
             const string createChaptersSql = """
                 CREATE TABLE IF NOT EXISTS murmur_novel_chapters (
                     novel_id VARCHAR(64) NOT NULL,

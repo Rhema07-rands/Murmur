@@ -3,6 +3,12 @@ using Murmur.API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var portEnv = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrWhiteSpace(portEnv) && int.TryParse(portEnv, out var port))
+{
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+}
+
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(10);
@@ -12,7 +18,7 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.AddControllers();
 builder.Services.Configure<FormOptions>(options =>
 {
-    options.MultipartBodyLengthLimit = 52_428_800; // 50 MB
+    options.MultipartBodyLengthLimit = 209_715_200; // 200 MB
 });
 
 builder.Services.AddCors(options =>

@@ -88,6 +88,30 @@ public sealed class TiDbDocumentLibraryService : IDocumentLibraryService
             await using var tableCmd = new MySqlCommand(createTableSql, conn);
             await tableCmd.ExecuteNonQueryAsync(cancellationToken);
 
+            // Migrate existing murmur_saved_documents table if it was created before user_id existed
+            const string checkColSql = """
+                SELECT COUNT(1)
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'murmur_saved_documents' AND COLUMN_NAME = 'user_id';
+                """;
+            await using var checkColCmd = new MySqlCommand(checkColSql, conn);
+            checkColCmd.Parameters.AddWithValue("@db", _targetDatabase);
+            var hasUserCol = Convert.ToInt64(await checkColCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!hasUserCol)
+            {
+                await using var addColCmd = new MySqlCommand(
+                    "ALTER TABLE murmur_saved_documents ADD COLUMN user_id VARCHAR(64) NULL;", conn);
+                await addColCmd.ExecuteNonQueryAsync(cancellationToken);
+
+                try
+                {
+                    await using var addIdxCmd = new MySqlCommand(
+                        "CREATE INDEX idx_user ON murmur_saved_documents (user_id);", conn);
+                    await addIdxCmd.ExecuteNonQueryAsync(cancellationToken);
+                }
+                catch { /* Index may already exist */ }
+            }
+
             _initialized = true;
         }
         finally
