@@ -33,6 +33,7 @@ export const LightNovelReader: React.FC<LightNovelReaderProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<import('../types/murmur').NovelImportJobStatus | null>(null);
+  const [uploadBytePercent, setUploadBytePercent] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -102,22 +103,33 @@ export const LightNovelReader: React.FC<LightNovelReaderProps> = ({
 
     setIsUploading(true);
     setError(null);
-    setUploadMessage('Uploading EPUB to cloud parser...');
+    setUploadBytePercent(0);
+    setUploadMessage('Uploading EPUB to cloud parser (0%)...');
     setUploadProgress(null);
 
     try {
-      const res = await apiService.uploadNovelWithProgress(file, (status) => {
-        setUploadProgress(status);
-        if (status.stage === 'dissecting') {
-          setUploadMessage(`Dissecting EPUB and reading chapter index... (${status.progressPercent}%)`);
-        } else if (status.stage === 'saving') {
-          setUploadMessage(
-            `Saving chapters to TiDB Cloud: ${status.processedChapters} of ${status.totalChapters} (${status.progressPercent}%)`
-          );
-        } else if (status.stage === 'completed') {
-          setUploadMessage(`Complete! Imported ${status.totalChapters} chapters.`);
+      const res = await apiService.uploadNovelWithProgress(
+        file,
+        (status) => {
+          setUploadProgress(status);
+          setUploadBytePercent(null); // Upload phase done, now processing
+          if (status.stage === 'dissecting') {
+            setUploadMessage(`Dissecting EPUB and parsing chapter index... (${status.progressPercent}%)`);
+          } else if (status.stage === 'saving') {
+            setUploadMessage(
+              `Saving chapters to TiDB Cloud: ${status.processedChapters.toLocaleString()} of ${status.totalChapters.toLocaleString()} (${status.progressPercent}%)`
+            );
+          } else if (status.stage === 'completed') {
+            setUploadMessage(`Complete! Imported ${status.totalChapters.toLocaleString()} chapters.`);
+          }
+        },
+        (pct, loaded, total) => {
+          setUploadBytePercent(pct);
+          const loadedMb = (loaded / (1024 * 1024)).toFixed(1);
+          const totalMb = (total / (1024 * 1024)).toFixed(1);
+          setUploadMessage(`Uploading EPUB: ${pct}% (${loadedMb} MB / ${totalMb} MB)...`);
         }
-      });
+      );
 
       setUploadMessage(res.message);
       await loadNovels();
@@ -132,6 +144,7 @@ export const LightNovelReader: React.FC<LightNovelReaderProps> = ({
     } finally {
       setIsUploading(false);
       setUploadProgress(null);
+      setUploadBytePercent(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -214,15 +227,48 @@ export const LightNovelReader: React.FC<LightNovelReaderProps> = ({
         </div>
       </div>
 
-      {uploadMessage && (
-        <div className="library-success" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <span>{uploadMessage}</span>
-          {uploadProgress && (
-            <div className="generation-track" style={{ height: '6px' }}>
-              <div
-                className="generation-fill"
-                style={{ width: `${uploadProgress.progressPercent}%`, transition: 'width 0.3s ease' }}
-              />
+      {(isUploading || uploadMessage) && (
+        <div className="generation-progress-box" style={{ margin: '10px 0 16px 0' }}>
+          <div className="generation-progress-header">
+            <span className="generation-status-title">
+              <span className="spinner-dot" />
+              {uploadMessage || 'Processing EPUB Novel...'}
+            </span>
+            <span className="generation-eta-badge">
+              {uploadBytePercent !== null
+                ? `${uploadBytePercent}% uploaded`
+                : uploadProgress
+                  ? `${uploadProgress.progressPercent}%`
+                  : 'Starting...'}
+            </span>
+          </div>
+
+          <div className="generation-track" style={{ height: '8px' }}>
+            <div
+              className="generation-fill"
+              style={{
+                width: `${Math.max(
+                  4,
+                  uploadBytePercent !== null
+                    ? uploadBytePercent
+                    : uploadProgress
+                      ? uploadProgress.progressPercent
+                      : 6
+                )}%`,
+              }}
+            />
+          </div>
+
+          {uploadProgress && uploadProgress.totalChapters > 0 && (
+            <div className="generation-details-row">
+              <span className="generation-detail">
+                {uploadProgress.stage === 'saving'
+                  ? `Saved ${uploadProgress.processedChapters.toLocaleString()} of ${uploadProgress.totalChapters.toLocaleString()} chapters`
+                  : `Dissecting chapters...`}
+              </span>
+              <span className="text-muted" style={{ fontSize: '0.75rem' }}>
+                {uploadProgress.title || ''}
+              </span>
             </div>
           )}
         </div>

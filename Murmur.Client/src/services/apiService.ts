@@ -287,21 +287,58 @@ export const apiService = {
     }
   },
 
-  async startUploadNovelJob(file: File): Promise<NovelImportJobStatus> {
+  async startUploadNovelJob(
+    file: File,
+    onUploadBytes?: (percent: number, loaded: number, total: number) => void
+  ): Promise<NovelImportJobStatus> {
     if (!API_BASE && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
       throw new Error('API connection not configured.');
     }
-    const form = new FormData();
-    form.append('file', file);
-    const response = await fetch(`${API_BASE}/api/novels/upload-job`, {
-      method: 'POST',
-      headers: { ...getAuthHeader() },
-      body: form,
+
+    return new Promise<NovelImportJobStatus>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE}/api/novels/upload-job`);
+
+      const headers = getAuthHeader();
+      for (const [key, val] of Object.entries(headers)) {
+        xhr.setRequestHeader(key, val);
+      }
+
+      if (xhr.upload && onUploadBytes) {
+        xhr.upload.onprogress = (evt) => {
+          if (evt.lengthComputable && evt.total > 0) {
+            const pct = Math.round((evt.loaded / evt.total) * 100);
+            onUploadBytes(pct, evt.loaded, evt.total);
+          }
+        };
+      }
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText) as NovelImportJobStatus;
+            resolve(data);
+          } catch {
+            reject(new Error('Invalid response from server.'));
+          }
+        } else {
+          try {
+            const err = JSON.parse(xhr.responseText) as { error?: string };
+            reject(new Error(err.error || `Server responded with ${xhr.status}`));
+          } catch {
+            reject(new Error(`Server responded with HTTP ${xhr.status}`));
+          }
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error('Network error uploading file.'));
+      };
+
+      const form = new FormData();
+      form.append('file', file);
+      xhr.send(form);
     });
-    if (!response.ok) {
-      throw new Error(await parseError(response));
-    }
-    return response.json() as Promise<NovelImportJobStatus>;
   },
 
   async getNovelJobStatus(jobId: string): Promise<NovelImportJobStatus> {
@@ -316,14 +353,15 @@ export const apiService = {
 
   async uploadNovelWithProgress(
     file: File,
-    onProgress: (status: NovelImportJobStatus) => void
+    onProgress: (status: NovelImportJobStatus) => void,
+    onUploadBytes?: (percent: number, loaded: number, total: number) => void
   ): Promise<NovelUploadResponse> {
-    const initialJob = await this.startUploadNovelJob(file);
+    const initialJob = await this.startUploadNovelJob(file, onUploadBytes);
     onProgress(initialJob);
 
     let currentJob = initialJob;
     while (currentJob.status === 'processing') {
-      await new Promise((r) => setTimeout(r, 1200));
+      await new Promise((r) => setTimeout(r, 1000));
       currentJob = await this.getNovelJobStatus(currentJob.jobId);
       onProgress(currentJob);
     }
