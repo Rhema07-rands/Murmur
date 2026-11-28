@@ -46,6 +46,16 @@ function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
+function formatEta(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return 'Finalizing...';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  if (mins > 0) {
+    return `~${mins}m ${secs}s remaining`;
+  }
+  return `~${secs}s remaining`;
+}
+
 export function SpeechControls({
   engine,
   isSpeaking,
@@ -125,9 +135,7 @@ export function SpeechControls({
                   Generating Neural Audio ({generationProgress.progressPercent}%)
                 </span>
                 <span className="generation-eta-badge">
-                  ⏱ {generationProgress.estimatedSecondsRemaining > 0
-                    ? `~${generationProgress.estimatedSecondsRemaining}s remaining`
-                    : 'Finalizing...'}
+                  ⏱ {formatEta(generationProgress.estimatedSecondsRemaining)}
                 </span>
               </div>
 

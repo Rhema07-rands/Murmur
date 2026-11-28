@@ -39,9 +39,9 @@ public sealed class SpeechController : ControllerBase
             return BadRequest(new { error = "Text cannot be empty." });
         }
 
-        if (request.Text.Length > 100_000)
+        if (request.Text.Length > 500_000)
         {
-            return BadRequest(new { error = "Text exceeds the 100,000 character limit per request. Please select fewer sections." });
+            return BadRequest(new { error = "Text exceeds the 500,000 character limit per request. Please select fewer sections." });
         }
 
         try
@@ -70,9 +70,9 @@ public sealed class SpeechController : ControllerBase
             return BadRequest(new { error = "Text cannot be empty." });
         }
 
-        if (request.Text.Length > 100_000)
+        if (request.Text.Length > 500_000)
         {
-            return BadRequest(new { error = "Text exceeds the 100,000 character limit per request. Please select fewer sections." });
+            return BadRequest(new { error = "Text exceeds the 500,000 character limit per request. Please select fewer sections." });
         }
 
         var job = _speechService.StartSpeechJob(request);

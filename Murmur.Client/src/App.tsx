@@ -279,8 +279,8 @@ export function App() {
       return;
     }
 
-    if (textToSpeak.length > 100_000) {
-      setError('Text exceeds the 100,000 character limit per request. Please select fewer sections.');
+    if (textToSpeak.length > 500_000) {
+      setError('Text exceeds the 500,000 character limit per request. Please select fewer sections.');
       return;
     }
 
@@ -309,6 +309,11 @@ export function App() {
       estimatedSecondsRemaining: Math.max(2, Math.ceil(estChunks * 1.2)),
     });
 
+    // Request browser notification permission if not yet decided so background alerts work
+    if ('Notification' in window && Notification.permission === 'default') {
+      void Notification.requestPermission();
+    }
+
     try {
       const result = await apiService.generateAiSpeechWithProgress(
         {
@@ -321,9 +326,24 @@ export function App() {
         },
         (status) => {
           setGenerationProgress(status);
+          // Show progress in document title even when user switches to other tabs/apps
+          document.title = `[${status.progressPercent}%] Murmur Generating Audio...`;
         },
         abortController.signal
       );
+
+      // Notify user when completed if browser is in the background
+      if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification('Murmur Audio Ready', {
+            body: `Finished generating audio (${textToSpeak.length.toLocaleString()} characters). Click to play.`,
+            icon: '/favicon.ico',
+          });
+        } catch {
+          // Ignore notification display failures
+        }
+      }
+      document.title = 'Murmur - Text-to-Speech';
 
       setSpokenAiText(textToSpeak);
       setGeneratedAudio(result);
@@ -375,6 +395,7 @@ export function App() {
         setError(err instanceof Error ? err.message : 'AI speech generation failed.');
       }
     } finally {
+      document.title = 'Murmur - Text-to-Speech';
       setIsGenerating(false);
       setGenerationProgress(null);
       abortControllerRef.current = null;
