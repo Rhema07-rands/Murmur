@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { SpeechEngine, SpeechJobStatus } from '../types/murmur';
 import {
   Forward10Icon,
@@ -85,6 +86,25 @@ export function SpeechControls({
   onCancelGeneration,
   onOpenMiniPlayer,
 }: SpeechControlsProps) {
+  const [liveSecondsRemaining, setLiveSecondsRemaining] = useState<number>(0);
+
+  // Real-time second-by-second countdown ticker
+  useEffect(() => {
+    if (!isGenerating || !generationProgress) {
+      setLiveSecondsRemaining(0);
+      return;
+    }
+
+    // Sync whenever a poll update arrives with a new server estimate
+    setLiveSecondsRemaining(generationProgress.estimatedSecondsRemaining);
+
+    const timer = setInterval(() => {
+      setLiveSecondsRemaining((prev) => Math.max(1, prev - 1));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isGenerating, generationProgress?.estimatedSecondsRemaining]);
+
   const effectiveElapsed = aiCurrentTime / speed;
   const effectiveTotal = aiDuration / speed;
 
@@ -135,7 +155,7 @@ export function SpeechControls({
                   Generating Neural Audio ({generationProgress.progressPercent}%)
                 </span>
                 <span className="generation-eta-badge">
-                  ⏱ {formatEta(generationProgress.estimatedSecondsRemaining)}
+                  ⏱ {formatEta(liveSecondsRemaining > 0 ? liveSecondsRemaining : generationProgress.estimatedSecondsRemaining)}
                 </span>
               </div>
 
