@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Mvc;
 using Murmur.API.Models;
 using Murmur.API.Services;
@@ -11,6 +12,9 @@ public sealed class LightNovelController : ControllerBase
     private readonly ILightNovelService _novelService;
     private readonly IDocumentExtractionService _extractionService;
     private readonly IAuthService _authService;
+
+    // In-memory import jobs tracker
+    private static readonly ConcurrentDictionary<string, NovelImportJobState> _importJobs = new();
 
     public LightNovelController(
         ILightNovelService novelService,
@@ -26,6 +30,105 @@ public sealed class LightNovelController : ControllerBase
     {
         var authHeader = Request.Headers.Authorization.ToString();
         return _authService.ValidateTokenAndGetUserId(authHeader);
+    }
+
+    [HttpPost("upload-job")]
+    [RequestSizeLimit(200_000_000)] // 200 MB
+    public async Task<ActionResult<NovelImportJobStatus>> StartUploadJob(
+        IFormFile file,
+        CancellationToken cancellationToken)
+    {
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest(new { error = "Please upload an EPUB file." });
+        }
+
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (ext is not ".epub")
+        {
+            return BadRequest(new { error = "Only .epub files are supported for Light Novels." });
+        }
+
+        var jobId = Guid.NewGuid().ToString("N");
+        var userId = GetCurrentUserId();
+
+        // Copy file into memory so background thread can process safely
+        var memoryStream = new MemoryStream();
+        await file.CopyToAsync(memoryStream, cancellationToken);
+        memoryStream.Position = 0;
+        var fileName = file.FileName;
+
+        var jobState = new NovelImportJobState
+        {
+            JobId = jobId,
+            Status = "processing",
+            Stage = "dissecting",
+            ProgressPercent = 5,
+        };
+        _importJobs[jobId] = jobState;
+
+        // Background worker
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using (memoryStream)
+                {
+                    var formFile = new FormFile(memoryStream, 0, memoryStream.Length, "file", fileName);
+                    var extracted = await _extractionService.ExtractAsync(formFile);
+
+                    if (extracted.Sections.Count == 0)
+                    {
+                        jobState.Status = "failed";
+                        jobState.Error = "No chapters could be extracted from this EPUB file.";
+                        return;
+                    }
+
+                    jobState.Stage = "saving";
+                    jobState.TotalChapters = extracted.Sections.Count;
+                    jobState.Title = extracted.Title;
+                    jobState.ProgressPercent = 20;
+
+                    var res = await _novelService.UploadNovelAsync(
+                        extracted.Title,
+                        extracted.Author,
+                        extracted.Sections,
+                        userId,
+                        onProgress: (processed, total) =>
+                        {
+                            jobState.ProcessedChapters = processed;
+                            jobState.TotalChapters = total;
+                            // Scale 20% -> 99%
+                            jobState.ProgressPercent = 20 + (int)Math.Clamp(((double)processed / total) * 79, 0, 79);
+                        });
+
+                    _extractionService.DeleteDocument(extracted.Id);
+
+                    jobState.Status = "completed";
+                    jobState.Stage = "completed";
+                    jobState.ProgressPercent = 100;
+                    jobState.ProcessedChapters = extracted.Sections.Count;
+                    jobState.NovelId = res.Id;
+                }
+            }
+            catch (Exception ex)
+            {
+                jobState.Status = "failed";
+                jobState.Error = ex.Message;
+            }
+        });
+
+        return Ok(jobState.ToStatus());
+    }
+
+    [HttpGet("jobs/{jobId}")]
+    public ActionResult<NovelImportJobStatus> GetJobStatus(string jobId)
+    {
+        if (_importJobs.TryGetValue(jobId, out var job))
+        {
+            return Ok(job.ToStatus());
+        }
+        return NotFound(new { error = "Import job not found or expired." });
     }
 
     [HttpPost("upload")]
@@ -60,7 +163,7 @@ public sealed class LightNovelController : ControllerBase
                 extracted.Author,
                 extracted.Sections,
                 userId,
-                cancellationToken);
+                cancellationToken: cancellationToken);
 
             _extractionService.DeleteDocument(extracted.Id);
 
@@ -70,6 +173,31 @@ public sealed class LightNovelController : ControllerBase
         {
             return BadRequest(new { error = ex.Message });
         }
+    }
+
+    private sealed class NovelImportJobState
+    {
+        public required string JobId { get; init; }
+        public string Status { get; set; } = "processing";
+        public string Stage { get; set; } = "dissecting";
+        public int ProgressPercent { get; set; }
+        public int ProcessedChapters { get; set; }
+        public int TotalChapters { get; set; }
+        public string? NovelId { get; set; }
+        public string? Title { get; set; }
+        public string? Error { get; set; }
+
+        public NovelImportJobStatus ToStatus() => new(
+            JobId,
+            Status,
+            ProgressPercent,
+            Stage,
+            ProcessedChapters,
+            TotalChapters,
+            NovelId,
+            Title,
+            Error
+        );
     }
 
     [HttpGet]

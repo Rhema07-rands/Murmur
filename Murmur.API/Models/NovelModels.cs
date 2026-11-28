@@ -38,3 +38,15 @@ public sealed record NovelUploadResponse(
 public sealed record UpdateReadingProgressRequest(
     int ChapterIndex
 );
+
+public sealed record NovelImportJobStatus(
+    string JobId,
+    string Status, // "processing", "completed", "failed"
+    int ProgressPercent,
+    string Stage, // "dissecting", "saving", "completed"
+    int ProcessedChapters,
+    int TotalChapters,
+    string? NovelId,
+    string? Title,
+    string? Error
+);

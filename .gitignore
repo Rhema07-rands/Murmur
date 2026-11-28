@@ -22,3 +22,5 @@ Murmur.API/TempStorage/
 Murmur.SpeechWorker/temp_audio/
 *.wav
 *.mp3
+
+*.epub

@@ -32,6 +32,7 @@ export const LightNovelReader: React.FC<LightNovelReaderProps> = ({
   const [isLoadingContent, setIsLoadingContent] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<import('../types/murmur').NovelImportJobStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -101,20 +102,36 @@ export const LightNovelReader: React.FC<LightNovelReaderProps> = ({
 
     setIsUploading(true);
     setError(null);
-    setUploadMessage('Dissecting EPUB and extracting chapters... This may take a moment for large novels.');
+    setUploadMessage('Uploading EPUB to cloud parser...');
+    setUploadProgress(null);
 
     try {
-      const res = await apiService.uploadNovel(file);
+      const res = await apiService.uploadNovelWithProgress(file, (status) => {
+        setUploadProgress(status);
+        if (status.stage === 'dissecting') {
+          setUploadMessage(`Dissecting EPUB and reading chapter index... (${status.progressPercent}%)`);
+        } else if (status.stage === 'saving') {
+          setUploadMessage(
+            `Saving chapters to TiDB Cloud: ${status.processedChapters} of ${status.totalChapters} (${status.progressPercent}%)`
+          );
+        } else if (status.stage === 'completed') {
+          setUploadMessage(`Complete! Imported ${status.totalChapters} chapters.`);
+        }
+      });
+
       setUploadMessage(res.message);
       await loadNovels();
-      const updated = await apiService.getNovel(res.id);
-      if (updated) {
-        await handleSelectNovel(updated);
+      if (res.id) {
+        const updated = await apiService.getNovel(res.id);
+        if (updated) {
+          await handleSelectNovel(updated);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to upload and dissect EPUB.');
     } finally {
       setIsUploading(false);
+      setUploadProgress(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -197,7 +214,19 @@ export const LightNovelReader: React.FC<LightNovelReaderProps> = ({
         </div>
       </div>
 
-      {uploadMessage && <div className="library-success">{uploadMessage}</div>}
+      {uploadMessage && (
+        <div className="library-success" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <span>{uploadMessage}</span>
+          {uploadProgress && (
+            <div className="generation-track" style={{ height: '6px' }}>
+              <div
+                className="generation-fill"
+                style={{ width: `${uploadProgress.progressPercent}%`, transition: 'width 0.3s ease' }}
+              />
+            </div>
+          )}
+        </div>
+      )}
       {error && <div className="error-banner">{error}</div>}
 
       {!selectedNovel ? (

@@ -131,6 +131,18 @@ export interface NovelUploadResponse {
   message: string;
 }
 
+export interface NovelImportJobStatus {
+  jobId: string;
+  status: 'processing' | 'completed' | 'failed';
+  progressPercent: number;
+  stage: 'dissecting' | 'saving' | 'completed';
+  processedChapters: number;
+  totalChapters: number;
+  novelId?: string;
+  title?: string;
+  error?: string;
+}
+
 export interface AuthResponse {
   token: string;
   userId: string;

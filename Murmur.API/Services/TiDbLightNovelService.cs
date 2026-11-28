@@ -116,6 +116,7 @@ public sealed class TiDbLightNovelService : ILightNovelService
         string? author,
         IReadOnlyList<DocumentSection> chapters,
         string? userId = null,
+        Action<int, int>? onProgress = null,
         CancellationToken cancellationToken = default)
     {
         await using var conn = await OpenConnectionAsync(cancellationToken);
@@ -143,8 +144,8 @@ public sealed class TiDbLightNovelService : ILightNovelService
         novelCmd.Parameters.AddWithValue("@uploaded", now);
         await novelCmd.ExecuteNonQueryAsync(cancellationToken);
 
-        // Batch-insert chapters in groups of 50
-        const int batchSize = 50;
+        // High-speed batch insertion (100 chapters per batch)
+        const int batchSize = 100;
         for (var i = 0; i < chapters.Count; i += batchSize)
         {
             var batch = chapters.Skip(i).Take(batchSize).ToList();
@@ -165,6 +166,8 @@ public sealed class TiDbLightNovelService : ILightNovelService
             cmd.CommandText = $"INSERT INTO murmur_novel_chapters (novel_id, chapter_index, title, content, character_count) VALUES {string.Join(", ", values)};";
             await cmd.ExecuteNonQueryAsync(cancellationToken);
             await cmd.DisposeAsync();
+
+            onProgress?.Invoke(Math.Min(i + batch.Count, chapters.Count), chapters.Count);
         }
 
         return new NovelUploadResponse(

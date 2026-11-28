@@ -3,6 +3,7 @@ import type {
   DocumentUploadResponse,
   NovelChapterDetail,
   NovelChapterSummary,
+  NovelImportJobStatus,
   NovelSummary,
   NovelUploadResponse,
   SaveDocumentRequest,
@@ -286,13 +287,13 @@ export const apiService = {
     }
   },
 
-  async uploadNovel(file: File): Promise<NovelUploadResponse> {
+  async startUploadNovelJob(file: File): Promise<NovelImportJobStatus> {
     if (!API_BASE && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
       throw new Error('API connection not configured.');
     }
     const form = new FormData();
     form.append('file', file);
-    const response = await fetch(`${API_BASE}/api/novels/upload`, {
+    const response = await fetch(`${API_BASE}/api/novels/upload-job`, {
       method: 'POST',
       headers: { ...getAuthHeader() },
       body: form,
@@ -300,7 +301,45 @@ export const apiService = {
     if (!response.ok) {
       throw new Error(await parseError(response));
     }
-    return response.json() as Promise<NovelUploadResponse>;
+    return response.json() as Promise<NovelImportJobStatus>;
+  },
+
+  async getNovelJobStatus(jobId: string): Promise<NovelImportJobStatus> {
+    const response = await fetch(`${API_BASE}/api/novels/jobs/${encodeURIComponent(jobId)}`, {
+      headers: { ...getAuthHeader() },
+    });
+    if (!response.ok) {
+      throw new Error(await parseError(response));
+    }
+    return response.json() as Promise<NovelImportJobStatus>;
+  },
+
+  async uploadNovelWithProgress(
+    file: File,
+    onProgress: (status: NovelImportJobStatus) => void
+  ): Promise<NovelUploadResponse> {
+    const initialJob = await this.startUploadNovelJob(file);
+    onProgress(initialJob);
+
+    let currentJob = initialJob;
+    while (currentJob.status === 'processing') {
+      await new Promise((r) => setTimeout(r, 1200));
+      currentJob = await this.getNovelJobStatus(currentJob.jobId);
+      onProgress(currentJob);
+    }
+
+    if (currentJob.status === 'failed') {
+      throw new Error(currentJob.error || 'Failed to import and dissect EPUB novel.');
+    }
+
+    return {
+      id: currentJob.novelId || '',
+      title: currentJob.title || file.name,
+      author: null,
+      totalChapters: currentJob.totalChapters,
+      totalCharacters: 0,
+      message: `Successfully imported ${currentJob.totalChapters} chapters.`,
+    };
   },
 
   async listNovels(): Promise<NovelSummary[]> {
